@@ -4,9 +4,9 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "test": "node --import tsx --test --test-timeout=600000 ./test/config.test.ts ./test/chain.test.ts ./test/privacy.test.ts ./test/nft.test.ts ./test/e2e.test.ts ./test/live.test.ts",
+    "test": "node --import tsx --test --test-timeout=600000 ./test/config.test.ts ./test/chain.test.ts ./test/privacy.test.ts ./test/nft.test.ts ./test/agents.test.ts ./test/e2e.test.ts ./test/live.test.ts",
     "start": "node --import tsx src/index.ts",
-    "test:live": "node --import tsx --test --test-timeout=180000 ./test/live.test.ts ./test/privacy.test.ts ./test/nft.test.ts"
+    "test:live": "node --import tsx --test --test-timeout=180000 ./test/live.test.ts ./test/privacy.test.ts ./test/nft.test.ts ./test/agents.test.ts"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.6",

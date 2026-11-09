@@ -66,3 +66,22 @@ test("OpenAiCompatLlm: tool calls parsed, 429 retried with Retry-After", async (
   assert.deepEqual(r.toolCalls, [{ id: "c1", name: "release_pot", args: { reason: "x" } }]);
   assert.equal(r.chatId, "chat-1");
 });
+
+test("OpenAiCompatLlm: a dropped connection is retried like a 5xx", async () => {
+  let hits = 0;
+  const srv = createServer((req, res) => {
+    req.on("data", () => {});
+    req.on("end", () => {
+      hits++;
+      if (hits === 1) return void req.socket.destroy(); // simulate a network drop
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ id: "c", choices: [{ message: { content: "ok" } }] }));
+    });
+  });
+  await new Promise<void>((r) => srv.listen(0, r));
+  const llm = new OpenAiCompatLlm(`http://127.0.0.1:${(srv.address() as any).port}/v1`, "k", "native", 3);
+  const r = await llm.complete({ model: "m", maxTokens: 5, messages: [{ role: "system", content: "s" }, { role: "user", content: "u" }], tools: [] });
+  srv.close();
+  assert.equal(hits, 2);
+  assert.equal(r.content, "ok");
+});

@@ -45,7 +45,8 @@ export function accountFrom(accountId: string, rpcUrl: string, secretKey: string
 }
 
 export async function view<T = unknown>(p: JsonRpcProvider, contractId: string, method: string, args: Record<string, unknown> = {}): Promise<T> {
-  return (await p.callFunction({ contractId, method, args })) as T;
+  // read-only, so safe to retry on network errors
+  return (await retryTransport(() => p.callFunction({ contractId, method, args }), 4, 1500)) as T;
 }
 
 export interface KeyInfo { publicKey: string; kind: "FullAccess" | "FunctionCall"; receiverId?: string; methodNames?: string[]; allowance?: string | null }

@@ -24,6 +24,8 @@ export interface Config {
   llm: LlmConfig;
   /** NEAR AI Cloud settings, used by the verification/privacy layer regardless of the inference provider. */
   nearai: { baseUrl: string; apiKey: string | undefined };
+  /** Layer 4: the swarm pool contract. */
+  pool: string | undefined;
   /** Layer 3: the registry/factory contract account (NFT guardians). */
   registry: string | undefined;
   /** Layer 2: record raw model exchanges (+ NEAR AI signatures). On by default for provider nearai; PRIVACY_CAPTURE=1 forces it. */
@@ -68,6 +70,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     nearai,
     registry: env.REGISTRY_ACCOUNT_ID || undefined,
+    pool: env.POOL_ACCOUNT_ID || undefined,
     privacy: { capture: provider === "nearai" || env.PRIVACY_CAPTURE === "1" },
   };
 }

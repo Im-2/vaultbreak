@@ -16,14 +16,15 @@ export function openDb(path: string): DB {
     CREATE TABLE IF NOT EXISTS sessions(
       id TEXT PRIMARY KEY, guardian_id TEXT NOT NULL, onchain_session_id INTEGER NOT NULL, attacker TEXT NOT NULL,
       status TEXT NOT NULL, turns INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL, closed_at INTEGER,
-      transcript_hash TEXT, tx_release TEXT, tx_close TEXT, UNIQUE(guardian_id, onchain_session_id));
+      transcript_hash TEXT, tx_release TEXT, tx_close TEXT, controller TEXT, UNIQUE(guardian_id, onchain_session_id));
     CREATE TABLE IF NOT EXISTS turns(
       id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, idx INTEGER NOT NULL, role TEXT NOT NULL,
       content TEXT NOT NULL, chat_id TEXT, signature TEXT, signing_address TEXT, created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS blocked_attempts(
       id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, tool TEXT NOT NULL, args TEXT NOT NULL,
       chain_error TEXT NOT NULL, created_at INTEGER NOT NULL);
-    CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY, owner TEXT NOT NULL, hash TEXT NOT NULL, budget_remaining TEXT NOT NULL, created_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS api_keys(id TEXT PRIMARY KEY, owner TEXT NOT NULL, hash TEXT NOT NULL, budget_remaining TEXT NOT NULL, created_at INTEGER NOT NULL,
+      agent_account TEXT, label TEXT, spent TEXT NOT NULL DEFAULT '0', revoked INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS events(
       id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, guardian_id TEXT, payload TEXT NOT NULL,
       block_height INTEGER, tx_hash TEXT, created_at INTEGER NOT NULL, UNIQUE(kind, guardian_id, payload));
@@ -37,7 +38,7 @@ export function openDb(path: string): DB {
     CREATE TABLE IF NOT EXISTS auth_nonces(nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_tokens(token TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
   `);
-  for (const ddl of ["ALTER TABLE guardians ADD COLUMN registry TEXT", "ALTER TABLE guardians ADD COLUMN pending INTEGER NOT NULL DEFAULT 0"]) {
+  for (const ddl of ["ALTER TABLE api_keys ADD COLUMN agent_account TEXT", "ALTER TABLE api_keys ADD COLUMN label TEXT", "ALTER TABLE api_keys ADD COLUMN spent TEXT NOT NULL DEFAULT '0'", "ALTER TABLE api_keys ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0", "ALTER TABLE sessions ADD COLUMN controller TEXT", "ALTER TABLE guardians ADD COLUMN registry TEXT", "ALTER TABLE guardians ADD COLUMN pending INTEGER NOT NULL DEFAULT 0"]) {
     try { db.exec(ddl); } catch { /* column already exists */ }
   }
   return db;

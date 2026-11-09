@@ -28,12 +28,19 @@ export class OpenAiCompatLlm implements Llm {
     const requestBody = JSON.stringify(body);
     let lastErr = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
-      const res = await fetch(`${this.baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
-        body: requestBody,
-      });
-      const text = await res.text();
+      let res: Response, text: string;
+      try {
+        res = await fetch(`${this.baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
+          body: requestBody,
+        });
+        text = await res.text();
+      } catch (e: any) { // network error (timeout, reset, DNS): retry like a 5xx
+        lastErr = `${this.label} network error: ${e?.message ?? e}${e?.cause?.code ? ` (${e.cause.code})` : ""}`;
+        await sleep(Math.min(20_000, 1500 * 2 ** attempt));
+        continue;
+      }
       if (res.ok) return { json: JSON.parse(text), exchange: { requestBody, responseBody: text, model: String(body.model) } };
       lastErr = `${this.label} ${res.status}: ${text.slice(0, 300)}`;
       if (res.status !== 429 && res.status < 500) break;

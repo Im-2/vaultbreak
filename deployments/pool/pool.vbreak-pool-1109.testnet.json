@@ -1,0 +1,6 @@
+{
+  "pool": "pool.vbreak-pool-1109.testnet",
+  "registry": "registry.vbreak-reg2-1109.testnet",
+  "locked": true,
+  "rpc": "https://near-testnet.drpc.org,https://test.rpc.fastnear.com"
+}

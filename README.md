@@ -2,7 +2,7 @@
 
 **A marketplace of AI guardians on NEAR.** A creator mints a Guardian: an AI agent with its own on-chain account holding a pot of NEAR. Anyone (a human or another AI agent) pays an entry fee to open a chat session and tries to talk the Guardian into releasing the pot. Fees grow the pot. A Guardian that survives builds a record.
 
-Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation) and 3 (NFT registry + factory) are built and tested.** Layers 4-5 (agent SDK + pools, Intents entry) are in progress / not built. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
+Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation), 3 (NFT registry + factory) and 4 (agents + swarm pools) are built and tested.** Layer 5 (NEAR Intents entry, optional, mainnet-only) is not built. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
 
 ## The problem
 
@@ -40,7 +40,17 @@ npm install
    See: a Guardian is defeated, its sealed prompt is revealed, and `scripts/verify-session.ts` prints PASS for (a) attestation, (b) signing address, (c) signed exchange vs transcript, (d) revealed prompt vs on-chain hash. Details and the real-service path in `docs/attestation.md`.
 9. **NFT layer demo** — `node --import tsx scripts/nft-demo.ts --mock` (sandbox) or `--testnet`
    See: a Guardian NFT is minted by the creator, its metadata changes as it is attacked, the NFT is transferred, the vault owner follows, and only the new owner can `claim_creator_fees`. Ends with `ALL CHECKS PASSED`.
-10. **Live-model tests (skipped without a key)** — `npm -w server run test:live` (add `LIVE_ATTESTATION=1` to also verify a real NEAR AI attestation, no credits needed), then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
+10. **Agents and swarms demo** — `node --import tsx scripts/swarm-demo.ts --mock` (sandbox) or `--testnet --owner <acct> --creator <acct>`
+   See: two agent sub-accounts pool funds 1 : 2, the leader attacks with the POOL's money, the Guardian releases to the pool, winnings are split by contribution, and agents whose budget is exhausted are refused. Ends with `ALL CHECKS PASSED`.
+11. **Live-model tests (skipped without a key)** — `npm -w server run test:live` (add `LIVE_ATTESTATION=1` to also verify a real NEAR AI attestation, no credits needed), then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
+
+### Agents and swarms (Layer 4)
+
+**Pool contract** (`contracts/pool`): agents pool NEAR; one **controller** spends it on entry fees; the Guardian pays any pot to the **pool contract** (it is the on-chain `attacker`); `settle` (permissionless) reads the session outcome and the vault's recorded `payout`; `withdraw` pays `(winnings + unspent) * contribution / total`; `refund` returns unspent funds from a pool that never won. Contributions close at the first attack (nobody buys in after fees were spent); fees are capped by `target_fee_budget`; a deadline lets anyone close an idle pool. Failures are handled: if the vault refuses an attack the reserved fee is restored; if a payout transfer bounces the claim is restored. Pro-rata math uses a 256-bit intermediate (property-tested). Pools only target **registry-minted guardians**: the vault account is derived as `<guardian_id>.<registry>` and only the registry can create such an account, so a pool never trusts an arbitrary contract's claims. To make settlement exact, the vault now records `payout` in each session.
+
+**Agent access** (`sdk/`, `/agent/*`): an owner (NEP-413 login) creates an **API key** for one of its own accounts/sub-accounts with a **spend budget**; the key authenticates as that account via `X-API-Key`, charges the session fee against the budget when an on-chain session is bound, and is refused with HTTP 402 when the budget is exhausted. The SDK checks the budget **before** paying on-chain. `createAgentAccount()` creates an agent sub-account `<name>.<owner>` funded with exactly its budget: that is the **hard** cap (the chain refuses what the account cannot afford). Pool endpoints (`/pools`, `/pools/:id/{contribute,attack,sessions/verify}`) read the contract and return **unsigned** transactions for the agent to sign.
+
+Limitations (read these): (1) the API-key budget is a **soft** cap: an agent that controls its own account can also log in directly (no budget). Use a funded sub-account for a hard cap. (2) The pool contract is a **single attacker per vault** (vaults allow one open session per attacker), so only one pool session per vault is open at a time across all pools; a controller can hold the slot until the session expires. (3) Pools work only with vaults minted by a registry whose vault code records `payout` (registry v2; the Layer 1 demo vaults and registry v1 do not). (4) The controller decides when and how much to spend (up to `target_fee_budget`); contributors trust the controller with fees, not with the winnings. (5) "Bounties" are simply the Guardian's pot paid to the pool or agent; there is no separate bounty system. (6) SPEC's "Guardian earns fees and funds its inference share" is **not implemented**: the ops share accrues to `ops_account`, but nothing pays inference automatically. (7) The pool contract has unit and sandbox tests but no external audit.
 
 ### NFT guardians (Layer 3)
 
@@ -79,7 +89,9 @@ Live demo vaults (testnet) and their on-chain key lists (queried via RPC `view_a
 | Guardian | Vault account | Access keys |
 |---|---|---|
 | strong | `strong.vbreak-deployer-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
-| registry | `registry.vbreak-reg-1109.testnet` | **no keys at all** (locked); mints vaults as `<id>.registry.vbreak-reg-1109.testnet` |
+| registry v2 | `registry.vbreak-reg2-1109.testnet` | **no keys at all** (locked); mints vaults as `<id>.registry.vbreak-reg2-1109.testnet`; embeds the vault that records `payout` (needed by pools) |
+| pool | `pool.vbreak-pool-1109.testnet` | **no keys at all** (locked); registry = `registry.vbreak-reg2-1109.testnet` |
+| registry v1 | `registry.vbreak-reg-1109.testnet` | superseded (older vault code, no `payout`); locked; kept for the Layer 3 record |
 | weak | `weak.vbreak-deployer2-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 | rogue | `rogue.vbreak-deployer5-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 
@@ -120,9 +132,10 @@ Attacker (UI / agent SDK)  --HTTPS+SSE-->  API (Hono) --SQLite--> sessions, tran
 |---|---|
 | `contracts/vault` | Rust (`near-sdk` 5.30.1) vault + policy. All `SPEC.md` 5.1 methods. |
 | `contracts/registry` | Rust: NFT registry + guardian factory (NEP-171/177/181/199) |
+| `contracts/pool` | Rust: swarm pool (pro-rata winnings / refunds) |
 | `server/src` | `guardian.ts` runtime, `app.ts` API, `indexer.ts`, `llm.ts`, `chain.ts` (near-api-js helpers), `db.ts` |
 | `sdk/src` | attacker client (NEP-413 login, bind session, SSE chat) |
-| `scripts` | `deploy-vault.ts`, `redteam-demo.ts`, `privacy-demo.ts`, `verify-session.ts`, `nft-demo.ts`, `deploy-registry.ts`, `testnet-account.mjs`, build/sandbox helpers |
+| `scripts` | `deploy-vault.ts`, `redteam-demo.ts`, `privacy-demo.ts`, `verify-session.ts`, `nft-demo.ts`, `swarm-demo.ts`, `deploy-registry.ts`, `deploy-pool.ts`, `testnet-account.mjs`, build/sandbox helpers |
 | `guardians/*.md` | prompts for the demo guardians (`strong`, `weak`) |
 | `tests` | sandbox harness + on-chain invariant tests |
 
@@ -157,6 +170,7 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 - Testnet RPC: `rpc.testnet.near.org` is deprecated and returns HTTP 429; defaults are now `https://test.rpc.fastnear.com,https://near-testnet.drpc.org` (failover). From WSL, connections to these Cloudflare-fronted hosts time out intermittently; the runtime retries transport errors and never records them as chain rejections.
 - SSE `token` events are chunked from the finished model response, not streamed token-by-token from the model.
 - The indexer polls vault view methods; it does not read block receipts, so `events.block_height` / `tx_hash` are empty. A FastNear/NearBlocks feed is future work.
+- Layer 4 gaps: see the limitations list under "Agents and swarms" (soft API budgets, one pool session per vault, no inference funding from fees, no audit). The pool/agent flows were verified on the sandbox and on testnet with a real Groq model; no mainnet use.
 - Layer 2 gaps: real NEAR AI response signatures have never been captured (no credits), so the signature endpoint integration is UNVERIFIED against the live service; GPU (NRAS), compose/RTMR3, Sigstore and gateway attestation checks are not implemented. The direct-completions endpoint (no gateway in the trust path) is not used. See `docs/attestation.md`.
 - NEAR Intents (Layer 5): not touched (mainnet only, needs approval).
 - Social login / custodial player accounts: not decided.
@@ -165,7 +179,7 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 
 ## Libraries
 
-Rust: `near-sdk` 5.30.1, `near-contract-standards` 5.30.1, `proptest`. TypeScript (Node 22): `near-api-js` 7.4.0 (`addFunctionCallAccessKey`, `nep413`), `near-sandbox` 0.3.5 (sandbox v2.14.0), `hono`, `@hono/node-server`, `ethers` (EIP-191 signature recovery), `@phala/dcap-qvl` (Intel TDX quote verification), `tsx`, `node:sqlite`. Not used: `near-sdk-js`, `near-workspaces` (it depends on old `near-api-js` v5).
+Rust: `near-sdk` 5.30.1, `near-contract-standards` 5.30.1, `proptest` (also used for the pool's 256-bit pro-rata math). TypeScript (Node 22): `near-api-js` 7.4.0 (`addFunctionCallAccessKey`, `nep413`), `near-sandbox` 0.3.5 (sandbox v2.14.0), `hono`, `@hono/node-server`, `ethers` (EIP-191 signature recovery), `@phala/dcap-qvl` (Intel TDX quote verification), `tsx`, `node:sqlite`. Not used: `near-sdk-js`, `near-workspaces` (it depends on old `near-api-js` v5).
 
 Dependency freshness checked at the end of Layer 1: `near-sdk` and `near-api-js` are at their latest releases; only dev type packages (`@types/node`, `typescript`) have newer majors.
 
