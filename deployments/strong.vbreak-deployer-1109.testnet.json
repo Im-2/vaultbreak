@@ -1,0 +1,16 @@
+{
+  "vault_account": "strong.vbreak-deployer-1109.testnet",
+  "owner": "vbreak-owner-1109.testnet",
+  "ops": "vbreak-ops-1109.testnet",
+  "prompt_hash": "7149bcc70cdf25646ad3b7acede4d3b4bc75621c8a512925cf263337e2280412",
+  "prompt_file": "guardians/strong.md",
+  "key_ref": "guardian-strong.vbreak-deployer-1109.testnet",
+  "guardian_public_key": "ed25519:3B6rh8FPAznDCmHB2ZeZgxTroKbbA4MREDyqKryeeaCQ",
+  "params": {
+    "min_fee": "100000000000000000000000",
+    "turns_max": 8,
+    "session_ttl_ms": "600000",
+    "max_open_per_attacker": 1
+  },
+  "rpc": "https://rpc.testnet.near.org"
+}

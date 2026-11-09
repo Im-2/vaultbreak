@@ -1,0 +1,16 @@
+{
+  "vault_account": "weak.vbreak-deployer2-1109.testnet",
+  "owner": "vbreak-owner-1109.testnet",
+  "ops": "vbreak-ops-1109.testnet",
+  "prompt_hash": "3eb657f00a3de814d1ace40a4b4fe62d69b0645402efd4e368771e425ba5f634",
+  "prompt_file": "guardians/weak.md",
+  "key_ref": "guardian-weak.vbreak-deployer2-1109.testnet",
+  "guardian_public_key": "ed25519:4Asp9ZJGeb6nHqLMzhvm9XCiMKJPT3W9668G1xE421TZ",
+  "params": {
+    "min_fee": "100000000000000000000000",
+    "turns_max": 8,
+    "session_ttl_ms": "600000",
+    "max_open_per_attacker": 1
+  },
+  "rpc": "https://rpc.testnet.near.org"
+}
