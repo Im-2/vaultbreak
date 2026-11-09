@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["contracts/vault", "contracts/registry"]
+members = ["contracts/vault", "contracts/registry", "contracts/pool"]
 
 [profile.release]
 codegen-units = 1

@@ -33,3 +33,16 @@ export async function deployRegistry(ctx, { baseUri = "http://localhost:8787", f
   await acct.callFunction({ contractId: id, methodName: "new", args: { admin: id, base_uri: baseUri }, gas: 100_000_000_000_000n });
   return { id, acct, kp };
 }
+
+export const POOL_WASM = readFileSync(fileURLToPath(new URL("../contracts/pool/out/pool.wasm", import.meta.url)));
+
+/** Deploys + initialises the swarm pool contract for `registryId` on `pool.<root>`. */
+export async function deployPool(ctx, registryId, { fundNear = 20n, name = "pool" } = {}) {
+  const kp = KeyPair.fromRandom("ed25519");
+  const id = `${name}.${ctx.root.accountId}`;
+  await ctx.root.createAccount({ newAccountId: id, publicKey: kp.getPublicKey().toString(), nearToTransfer: fundNear * 10n ** 24n });
+  const acct = accountFrom(id, ctx.rpcUrl, kp.toString());
+  await acct.deployContract(POOL_WASM);
+  await acct.callFunction({ contractId: id, methodName: "new", args: { registry: registryId }, gas: 100_000_000_000_000n });
+  return { id, acct, kp };
+}

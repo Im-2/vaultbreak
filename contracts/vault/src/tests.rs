@@ -160,6 +160,7 @@ fn inv3_failed_payout_restores_state_without_double_pay() {
     v.on_payout(PayoutKind::Pot, Some(U64(id)), U128(5 * NEAR), Err(PromiseError::Failed));
     assert_eq!(v.status, VaultStatus::Armed);
     assert_eq!(v.sessions.get(&id).unwrap().status, SessionStatus::Failed); // cannot be released again
+    assert_eq!(v.sessions.get(&id).unwrap().payout, 0, "a bounced payout is not recorded as paid");
 }
 
 // ---- Invariant 4: only the vault's own keys can call release / close_session ----
@@ -323,4 +324,18 @@ fn inv7_source_never_adds_full_access_or_unrestricted_keys() {
     for banned in ["add_full_access_key", "FullAccess", "full_access", "deploy_contract", "add_access_key(", "create_account", "delete_account"] {
         assert!(!prod.contains(banned), "vault source must not contain `{banned}`");
     }
+}
+
+// ---- Layer 4: the session records exactly what it paid (pools settle from this) ----
+#[test]
+fn released_session_records_payout_for_pool_settlement() {
+    let mut v = new_vault(5 * NEAR);
+    let id = start(&mut v, "alice.test", NEAR, 1);
+    assert_eq!(v.get_session(U64(id)).unwrap().payout.0, 0, "nothing paid yet");
+    let pot = v.pot;
+    as_guardian(2, 100 * NEAR);
+    let _ = v.release(U64(id));
+    let s = v.get_session(U64(id)).unwrap();
+    assert_eq!(s.status, SessionStatus::Won);
+    assert_eq!(s.payout.0, pot);
 }

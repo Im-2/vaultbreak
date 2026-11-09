@@ -72,6 +72,8 @@ pub struct Session {
     pub expires_at: u64,
     pub status: SessionStatus,
     pub transcript_hash: Option<[u8; 32]>,
+    /// yoctoNEAR paid to the attacker when this session was Won (0 otherwise). Lets pool contracts settle exactly.
+    pub payout: u128,
 }
 
 #[near(serializers = [json])]
@@ -83,6 +85,7 @@ pub struct SessionView {
     pub expires_at: U64,
     pub status: SessionStatus,
     pub transcript_hash: Option<String>,
+    pub payout: U128,
 }
 
 #[near(serializers = [borsh, json])]
@@ -239,6 +242,7 @@ impl Vault {
                 expires_at,
                 status: SessionStatus::Open,
                 transcript_hash: None,
+                payout: 0,
             },
         );
         self.open_by_attacker.insert(attacker.clone(), open + 1);
@@ -260,6 +264,7 @@ impl Vault {
         let amount = self.pot;
         require!(amount > 0, "empty pot");
         s.status = SessionStatus::Won;
+        s.payout = amount;
         let attacker = s.attacker.clone();
         self.sessions.insert(session_id.0, s);
         self.dec_open(&attacker);
@@ -396,6 +401,7 @@ impl Vault {
                 if let Some(id) = session_id {
                     if let Some(mut s) = self.sessions.get(&id.0).cloned() {
                         s.status = SessionStatus::Failed;
+                        s.payout = 0; // the payout bounced: nothing was paid
                         self.sessions.insert(id.0, s);
                     }
                 }
@@ -431,6 +437,7 @@ impl Vault {
             expires_at: U64(s.expires_at),
             status: s.status,
             transcript_hash: s.transcript_hash.map(|h| hex(&h)),
+            payout: U128(s.payout),
         })
     }
 

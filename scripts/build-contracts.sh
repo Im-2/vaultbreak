@@ -9,4 +9,6 @@ cargo build --release --target wasm32-unknown-unknown -p vaultbreak-vault
 mkdir -p contracts/vault/out && cp "$T/vaultbreak_vault.wasm" contracts/vault/out/vault.wasm
 cargo build --release --target wasm32-unknown-unknown -p vaultbreak-registry
 mkdir -p contracts/registry/out && cp "$T/vaultbreak_registry.wasm" contracts/registry/out/registry.wasm
-ls -l contracts/vault/out/vault.wasm contracts/registry/out/registry.wasm | awk '{print "built", $9, $5, "bytes"}'
+cargo build --release --target wasm32-unknown-unknown -p vaultbreak-pool
+mkdir -p contracts/pool/out && cp "$T/vaultbreak_pool.wasm" contracts/pool/out/pool.wasm
+ls -l contracts/vault/out/vault.wasm contracts/registry/out/registry.wasm contracts/pool/out/pool.wasm | awk '{print "built", $9, $5, "bytes"}'

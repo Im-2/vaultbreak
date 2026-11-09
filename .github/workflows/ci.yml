@@ -9,7 +9,7 @@ jobs:
         with: { targets: wasm32-unknown-unknown }
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
-      - run: cargo test -p vaultbreak-vault -p vaultbreak-registry
+      - run: cargo test -p vaultbreak-vault -p vaultbreak-registry -p vaultbreak-pool
       - run: bash scripts/build-contracts.sh
       - run: npm ci
       - run: echo "NEAR_SANDBOX_BIN_PATH=$(bash scripts/fetch-sandbox.sh)" >> $GITHUB_ENV
