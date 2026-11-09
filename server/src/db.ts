@@ -11,7 +11,8 @@ export function openDb(path: string): DB {
       prompt_hash TEXT NOT NULL, prompt_ciphertext TEXT NOT NULL, revealed INTEGER NOT NULL DEFAULT 0,
       retired INTEGER NOT NULL DEFAULT 0, danger_mode INTEGER NOT NULL DEFAULT 1,
       model TEXT NOT NULL, key_ref TEXT NOT NULL, name TEXT, turns_max INTEGER NOT NULL DEFAULT 8,
-      created_at INTEGER NOT NULL, state_json TEXT, last_synced_session INTEGER NOT NULL DEFAULT 0);
+      created_at INTEGER NOT NULL, state_json TEXT, last_synced_session INTEGER NOT NULL DEFAULT 0,
+      registry TEXT, pending INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS sessions(
       id TEXT PRIMARY KEY, guardian_id TEXT NOT NULL, onchain_session_id INTEGER NOT NULL, attacker TEXT NOT NULL,
       status TEXT NOT NULL, turns INTEGER NOT NULL DEFAULT 0, started_at INTEGER NOT NULL, closed_at INTEGER,
@@ -36,6 +37,9 @@ export function openDb(path: string): DB {
     CREATE TABLE IF NOT EXISTS auth_nonces(nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_tokens(token TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
   `);
+  for (const ddl of ["ALTER TABLE guardians ADD COLUMN registry TEXT", "ALTER TABLE guardians ADD COLUMN pending INTEGER NOT NULL DEFAULT 0"]) {
+    try { db.exec(ddl); } catch { /* column already exists */ }
+  }
   return db;
 }
 

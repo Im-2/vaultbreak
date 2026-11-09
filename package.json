@@ -12,6 +12,7 @@
     "test:server": "npm -w server test",
     "demo": "node --import tsx scripts/redteam-demo.ts",
     "demo:privacy": "node --import tsx scripts/privacy-demo.ts",
+    "demo:nft": "node --import tsx scripts/nft-demo.ts",
     "test": "npm run test:contracts && npm run test:sandbox && npm run test:server"
   }
 }

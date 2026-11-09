@@ -9,6 +9,7 @@ import { encrypt, sha256Hex } from "./crypto.ts";
 export interface Registration {
   vault_account: string; owner: string; ops?: string; prompt: string; prompt_hash: string;
   key_ref: string; name?: string; model: string; danger_mode?: boolean; turns_max: number;
+  registry?: string; pending?: boolean; // Layer 3: NFT guardian; pending until the creator's mint transaction is confirmed
 }
 
 export function guardianId(vaultAccount: string): string { return vaultAccount.split(".")[0]; }
@@ -16,8 +17,8 @@ export function guardianId(vaultAccount: string): string { return vaultAccount.s
 export function registerGuardian(db: DB, pkey: Buffer, r: Registration): string {
   if (sha256Hex(r.prompt) !== r.prompt_hash) throw new Error("prompt does not match the committed prompt_hash");
   const id = guardianId(r.vault_account);
-  db.prepare(`INSERT OR REPLACE INTO guardians(id, vault_account, owner, ops, prompt_hash, prompt_ciphertext, model, key_ref, name, turns_max, danger_mode, created_at)
-              VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, r.vault_account, r.owner, r.ops ?? null, r.prompt_hash, encrypt(r.prompt, pkey), r.model, r.key_ref, r.name ?? id, r.turns_max, r.danger_mode === false ? 0 : 1, now());
+  db.prepare(`INSERT OR REPLACE INTO guardians(id, vault_account, owner, ops, prompt_hash, prompt_ciphertext, model, key_ref, name, turns_max, danger_mode, created_at, registry, pending)
+              VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, r.vault_account, r.owner, r.ops ?? null, r.prompt_hash, encrypt(r.prompt, pkey), r.model, r.key_ref, r.name ?? id, r.turns_max, r.danger_mode === false ? 0 : 1, now(), r.registry ?? null, r.pending ? 1 : 0);
   return id;
 }
 

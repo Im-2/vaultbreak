@@ -1,0 +1,16 @@
+{
+  "registry": "registry.vbreak-reg-1109.testnet",
+  "admin": "vbreak-reg-1109.testnet",
+  "base_uri": "http://localhost:8787",
+  "locked": true,
+  "rpc": "https://near-testnet.drpc.org,https://test.rpc.fastnear.com",
+  "nft_metadata": {
+    "spec": "nft-1.0.0",
+    "name": "Vaultbreak Guardians",
+    "symbol": "VBG",
+    "icon": null,
+    "base_uri": "http://localhost:8787",
+    "reference": null,
+    "reference_hash": null
+  }
+}

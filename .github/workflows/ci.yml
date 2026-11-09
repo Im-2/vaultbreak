@@ -17,3 +17,4 @@ jobs:
       - run: npm run test:server
       - run: node --import tsx scripts/redteam-demo.ts --mock
       - run: node --import tsx scripts/privacy-demo.ts
+      - run: node --import tsx scripts/nft-demo.ts --mock

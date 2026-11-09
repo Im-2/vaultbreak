@@ -1,14 +1,15 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { KeyPair } from "near-api-js";
 import { verifyMessage } from "near-api-js/nep413";
 import type { Config } from "./config.ts";
 import { now, type DB } from "./db.ts";
-import { provider, view } from "./chain.ts";
+import { listKeys, provider, view } from "./chain.ts";
 import { decrypt, sha256Hex } from "./crypto.ts";
 import { GuardianRuntime, type GuardianRow, type SessionRow } from "./guardian.ts";
-import { createGuardian } from "./guardians.ts";
+import { createGuardian, registerGuardian } from "./guardians.ts";
 import { syncGuardian } from "./indexer.ts";
 import type { Llm } from "./llm.ts";
 import { fetchAttestation, newNonce, verifyAttestation, type QuoteVerifier } from "./privacy/attestation.ts";
@@ -33,14 +34,25 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   };
   const isAdmin = (c: any) => !!cfg.adminToken && c.req.header("x-admin-token") === cfg.adminToken;
 
+  /** Reads the vault straight from chain (so NFT metadata is always live); falls back to the indexer's cache if RPC fails. */
+  async function liveOrCached(g: any): Promise<{ state: any; stats: any; params: any }> {
+    try {
+      const [state, stats, params] = await Promise.all([view(p, g.vault_account, "get_state"), view(p, g.vault_account, "get_stats"), view(p, g.vault_account, "get_params")]) as any[];
+      return { state, stats, params };
+    } catch (e) {
+      let cached = g.state_json ? JSON.parse(g.state_json) : null;
+      if (!cached) { await syncGuardian(db, cfg, g); cached = JSON.parse((getG(g.id) as any).state_json); }
+      return cached;
+    }
+  }
+
   async function publicGuardian(g: any, full = false) {
-    let cached = g.state_json ? JSON.parse(g.state_json) : null;
-    if (!cached) { await syncGuardian(db, cfg, g); cached = JSON.parse((getG(g.id) as any).state_json); }
-    const { state, stats, params } = cached;
+    const { state, stats, params } = await liveOrCached(g);
     return {
       id: g.id, name: g.name, vault_account: g.vault_account, owner: state.owner, status: state.status,
       pot: state.pot, min_fee: params.min_fee, turns_max: params.turns_max, session_ttl_ms: params.session_ttl_ms,
       stats, prompt_hash: g.prompt_hash, revealed: !!g.revealed, model: g.model, danger_mode: !!g.danger_mode,
+      ...(g.registry ? { nft: { registry: g.registry, token_id: g.id, owner: state.owner } } : {}),
       ...(full ? { attestation: `/guardians/${g.id}/attestation`, metadata: `/guardians/${g.id}/metadata.json`, guardian_public_key: state.guardian_pk } : {}),
     };
   }
@@ -70,7 +82,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
 
   // ---- guardians ----
   app.get("/guardians", async (c) => {
-    const gs = db.prepare("SELECT * FROM guardians ORDER BY created_at").all() as any[];
+    const gs = db.prepare("SELECT * FROM guardians WHERE pending=0 ORDER BY created_at").all() as any[];
     return c.json(await Promise.all(gs.map((g) => publicGuardian(g))));
   });
   app.get("/guardians/:id", async (c) => {
@@ -79,10 +91,18 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   });
   app.get("/guardians/:id/metadata.json", async (c) => {
     const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
-    const pg = await publicGuardian(g);
+    if (g.pending) return c.json({ error: "not found" }, 404);
+    const pg = await publicGuardian(g); // read from chain on every request: always live
+    const potNear = Number(BigInt(pg.pot) / 10n ** 20n) / 1e4;
     return c.json({
-      title: `Guardian ${pg.name}`, description: "A Vaultbreak AI guardian holding a pot of NEAR.",
-      extra: { status: pg.status, pot: pg.pot, attempts: pg.stats.attempts, wins: pg.stats.wins, streak: pg.stats.streak, vault_account: pg.vault_account },
+      title: `Guardian ${pg.name}`,
+      description: `A Vaultbreak AI guardian. Status ${pg.status}, pot ${potNear} NEAR, ${pg.stats.attempts} attempts, ${pg.stats.wins} wins, streak ${pg.stats.streak}.`,
+      attributes: [
+        { trait_type: "status", value: pg.status }, { trait_type: "pot_near", value: potNear },
+        { trait_type: "attempts", value: pg.stats.attempts }, { trait_type: "wins", value: pg.stats.wins },
+        { trait_type: "survival_streak", value: pg.stats.streak }, { trait_type: "blocked_reported", value: pg.stats.blocked_reported },
+      ],
+      extra: { status: pg.status, pot: pg.pot, attempts: pg.stats.attempts, wins: pg.stats.wins, streak: pg.stats.streak, blocked_reported: pg.stats.blocked_reported, total_fees: pg.stats.total_fees, vault_account: pg.vault_account, owner: pg.owner, nft: (pg as any).nft ?? null, prompt_hash: pg.prompt_hash, revealed: pg.revealed },
     });
   });
   app.post("/guardians", async (c) => {
@@ -94,6 +114,61 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
     const id = await createGuardian(db, cfg, pkey, { name: b.name, prompt: b.prompt, owner: b.owner, ops: b.ops ?? funderId, seedNear: b.seed_near, feeNear: b.fee_near, turns: b.turns, ttlMin: b.ttl_min, dangerMode: b.danger_mode, model: b.model, funderId, wasm });
     return c.json({ id });
   });
+  // ---- Layer 3: creator-signed NFT mint ----
+  // 1) prepare: the server makes the guardian key and stores the sealed prompt, and returns an UNSIGNED mint transaction.
+  // 2) the creator signs + sends it (registry.mint_guardian creates the NFT-account vault).  3) confirm: the server checks chain.
+  app.post("/guardians/prepare", async (c) => {
+    const creator = account(c); if (!creator) return c.json({ error: "login required" }, 401);
+    if (!cfg.registry) return c.json({ error: "REGISTRY_ACCOUNT_ID is not configured" }, 500);
+    const b = await c.req.json();
+    const id = String(b.guardian_id ?? "");
+    if (!/^[a-z0-9][a-z0-9_-]{0,31}$/.test(id)) return c.json({ error: "guardian_id must be 1-32 chars of [a-z0-9_-]" }, 400);
+    if (typeof b.prompt !== "string" || b.prompt.length < 10 || b.prompt.length > 20000) return c.json({ error: "prompt required (10-20000 chars)" }, 400);
+    const royalty = Number(b.royalty_bps ?? 500);
+    if (!Number.isInteger(royalty) || royalty < 0 || royalty > 2000) return c.json({ error: "royalty_bps must be an integer 0-2000" }, 400);
+    const existing = getG(id);
+    if (existing && !(existing.pending && existing.owner === creator)) return c.json({ error: "guardian_id already taken" }, 409);
+    const vault = `${id}.${cfg.registry}`;
+    const kp = KeyPair.fromRandom("ed25519");
+    const keyRef = `guardian-${vault}`;
+    mkdirSync(cfg.keysDir, { recursive: true });
+    writeFileSync(`${cfg.keysDir}/${keyRef}.json`, JSON.stringify({ vault, public_key: kp.getPublicKey().toString(), private_key: kp.toString() }));
+    const near = (n: number) => BigInt(Math.round(n * 1e6)) * 10n ** 18n;
+    const promptHash = sha256Hex(b.prompt);
+    const params = { min_fee: near(Number(b.fee_near ?? 0.1)).toString(), turns_max: Number(b.turns ?? 8), session_ttl_ms: String(Number(b.ttl_min ?? 10) * 60_000), max_open_per_attacker: 1 };
+    const required = BigInt((await view(p, cfg.registry, "mint_requirements", {})) as string);
+    const deposit = required - near(0.5) + near(Number(b.seed_near ?? 2)); // mint_requirements already includes the 0.5 NEAR minimum pot
+    registerGuardian(db, pkey, { vault_account: vault, owner: creator, ops: b.ops_account ?? creator, prompt: b.prompt, prompt_hash: promptHash, key_ref: keyRef, name: b.name ?? id, model: b.model ?? cfg.llm.model, danger_mode: b.danger_mode, turns_max: params.turns_max, registry: cfg.registry, pending: true });
+    return c.json({
+      guardian_id: id, vault_account: vault, prompt_hash: promptHash, guardian_public_key: kp.getPublicKey().toString(),
+      mint_transaction: {
+        signerId: creator, receiverId: cfg.registry,
+        actions: [{ type: "FunctionCall", params: { methodName: "mint_guardian", gas: "300000000000000", deposit: deposit.toString(),
+          args: { args: { guardian_id: id, ops_account: b.ops_account ?? creator, guardian_pk: kp.getPublicKey().toString(), prompt_hash: promptHash, params, royalty_bps: royalty, allowance: null } } } }],
+      },
+      next: `sign and send mint_transaction, then POST /guardians/${id}/confirm`,
+    });
+  });
+
+  app.post("/guardians/:id/confirm", async (c) => {
+    const acct = account(c); if (!acct) return c.json({ error: "login required" }, 401);
+    const g = getG(c.req.param("id")); if (!g || !g.registry) return c.json({ error: "not found" }, 404);
+    if (g.owner !== acct) return c.json({ error: "only the creator who prepared this guardian can confirm it" }, 403);
+    if (!g.pending) return c.json(await publicGuardian(g, true));
+    const tok: any = await view(p, g.registry, "nft_token", { token_id: g.id });
+    if (!tok) return c.json({ error: "NFT not minted yet: send the mint transaction first" }, 409);
+    const st: any = await view(p, g.vault_account, "get_state");
+    const keys = await listKeys(p, g.vault_account);
+    const myKey = JSON.parse(readFileSync(`${cfg.keysDir}/${g.key_ref}.json`, "utf8")).public_key;
+    const problems: string[] = [];
+    if (st.registry !== g.registry) problems.push("vault is not bound to the registry");
+    if (st.prompt_hash !== g.prompt_hash) problems.push("on-chain prompt_hash differs from the prepared prompt");
+    if (keys.length !== 1 || keys[0].kind !== "FunctionCall" || keys[0].publicKey !== myKey) problems.push("vault keys are not exactly the prepared guardian function-call key");
+    if (problems.length) return c.json({ error: "mint does not match what was prepared", problems }, 409);
+    db.prepare("UPDATE guardians SET pending=0 WHERE id=?").run(g.id);
+    return c.json(await publicGuardian(getG(g.id), true));
+  });
+
   app.post("/guardians/:id/reveal", async (c) => {
     const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
     const st: any = await view(p, g.vault_account, "get_state");
@@ -106,7 +181,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   // ---- sessions ----
   app.post("/guardians/:id/sessions/verify", async (c) => {
     const acct = account(c); if (!acct) return c.json({ error: "login required" }, 401);
-    const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
+    const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
     const { onchain_session_id } = await c.req.json();
     const s: any = await view(p, g.vault_account, "get_session", { session_id: String(onchain_session_id) });
     if (!s) return c.json({ error: "no such on-chain session" }, 404);
@@ -158,9 +233,13 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   });
 
   // ---- Layer 2: privacy / verification ----
-  app.post("/guardians/:id/retire", (c) => {
-    if (!isAdmin(c)) return c.json({ error: "admin only" }, 403);
+  app.post("/guardians/:id/retire", async (c) => {
     const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
+    if (!isAdmin(c)) {
+      const acct = account(c); if (!acct) return c.json({ error: "login required (owner) or admin token" }, 401);
+      const st: any = await view(p, g.vault_account, "get_state");
+      if (st.owner !== acct) return c.json({ error: "only the current owner (NFT holder) can retire this guardian" }, 403);
+    }
     db.prepare("UPDATE guardians SET retired=1 WHERE id=?").run(g.id);
     return c.json({ id: g.id, retired: true });
   });

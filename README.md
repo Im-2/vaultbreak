@@ -2,7 +2,7 @@
 
 **A marketplace of AI guardians on NEAR.** A creator mints a Guardian: an AI agent with its own on-chain account holding a pot of NEAR. Anyone (a human or another AI agent) pays an entry fee to open a chat session and tries to talk the Guardian into releasing the pot. Fees grow the pot. A Guardian that survives builds a record.
 
-Status: **Layer 1 (core) and Layer 2 (privacy commit-reveal + TEE attestation) are built and tested.** Layers 3-5 (NFT registry, agent SDK + pools, Intents entry) are not built yet. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
+Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation) and 3 (NFT registry + factory) are built and tested.** Layers 4-5 (agent SDK + pools, Intents entry) are in progress / not built. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
 
 ## The problem
 
@@ -38,7 +38,25 @@ npm install
 7. **Run the server** — `cp .env.example .env` (fill in values), then `npm -w server start`. With no `MODEL_*` set it uses the offline `mock` model; see "Model provider" below to use a real one.
 8. **Privacy layer demo (offline)** — `npm run demo:privacy`
    See: a Guardian is defeated, its sealed prompt is revealed, and `scripts/verify-session.ts` prints PASS for (a) attestation, (b) signing address, (c) signed exchange vs transcript, (d) revealed prompt vs on-chain hash. Details and the real-service path in `docs/attestation.md`.
-9. **Live-model tests (skipped without a key)** — `npm -w server run test:live` (add `LIVE_ATTESTATION=1` to also verify a real NEAR AI attestation, no credits needed), then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
+9. **NFT layer demo** — `node --import tsx scripts/nft-demo.ts --mock` (sandbox) or `--testnet`
+   See: a Guardian NFT is minted by the creator, its metadata changes as it is attacked, the NFT is transferred, the vault owner follows, and only the new owner can `claim_creator_fees`. Ends with `ALL CHECKS PASSED`.
+10. **Live-model tests (skipped without a key)** — `npm -w server run test:live` (add `LIVE_ATTESTATION=1` to also verify a real NEAR AI attestation, no credits needed), then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
+
+### NFT guardians (Layer 3)
+
+`contracts/registry` is the factory and the NFT contract in one. **Mint:** the creator signs `mint_guardian`; ONE batched promise creates `<id>.<registry>`, funds it, deploys the vault wasm, calls `new`, and adds **only** the guardian function-call key (no `add_full_access_key` exists in the contract; a source-scan test enforces it). The NFT is minted in the callback only if that batch succeeded (a failed batch refunds the creator and mints nothing). **Owner follows the NFT:** `nft_transfer` moves the token and calls `vault.set_owner`; if the vault refuses (e.g. the new owner has an open attack session) the token is moved back, so token owner == vault owner always holds. **Metadata is live:** the token's `reference` is `<base_uri>/guardians/<id>/metadata.json`, which the API renders from the vault on every request (status, pot, attempts, wins, streak). **Royalties:** NEP-199 `nft_payout` / `nft_transfer_payout` (creator royalty up to 20%, set at mint; NEP-199 is Final in the NEPs repo as of this build).
+
+API: `POST /guardians/prepare` (login; returns an unsigned `mint_guardian` transaction for the creator to sign; the server keeps the sealed prompt and the guardian key) then `POST /guardians/:id/confirm` (checks chain: vault bound to the registry, prompt hash and guardian key match, exactly one function-call key). `POST /guardians/:id/retire` now accepts the current NFT owner.
+
+| Standard | Status in the registry |
+|---|---|
+| NEP-171 core | `nft_transfer`, `nft_token`; **`nft_transfer_call` is intentionally unsupported** (it cannot be combined safely with the owner sync); `nft_transfer` returns a bool (vault synced) instead of nothing |
+| NEP-177 metadata | contract + token metadata; the token has a live `reference` but **no `reference_hash`** (content is dynamic) |
+| NEP-181 enumeration | yes |
+| NEP-199 payouts | `nft_payout`, `nft_transfer_payout` |
+| NEP-178 approvals | **not implemented**: only the owner can transfer, so `approval_id` is ignored. No marketplace integration was tested |
+
+Mint cost (testnet): the registry embeds the 232 KB vault wasm, so each Guardian needs about 3.3 NEAR plus its pot (`registry.mint_requirements()`). The testnet registry is **locked** (its deploy key was deleted: no keys, immutable code); `admin` can only call `set_base_uri`. Its `base_uri` is `http://localhost:8787` until the API is hosted somewhere. Deploy your own with `scripts/deploy-registry.ts`.
 
 ### Privacy layer (Layer 2)
 
@@ -61,6 +79,7 @@ Live demo vaults (testnet) and their on-chain key lists (queried via RPC `view_a
 | Guardian | Vault account | Access keys |
 |---|---|---|
 | strong | `strong.vbreak-deployer-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
+| registry | `registry.vbreak-reg-1109.testnet` | **no keys at all** (locked); mints vaults as `<id>.registry.vbreak-reg-1109.testnet` |
 | weak | `weak.vbreak-deployer2-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 | rogue | `rogue.vbreak-deployer5-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 
@@ -100,9 +119,10 @@ Attacker (UI / agent SDK)  --HTTPS+SSE-->  API (Hono) --SQLite--> sessions, tran
 | Path | What |
 |---|---|
 | `contracts/vault` | Rust (`near-sdk` 5.30.1) vault + policy. All `SPEC.md` 5.1 methods. |
+| `contracts/registry` | Rust: NFT registry + guardian factory (NEP-171/177/181/199) |
 | `server/src` | `guardian.ts` runtime, `app.ts` API, `indexer.ts`, `llm.ts`, `chain.ts` (near-api-js helpers), `db.ts` |
 | `sdk/src` | attacker client (NEP-413 login, bind session, SSE chat) |
-| `scripts` | `deploy-vault.ts`, `redteam-demo.ts`, `privacy-demo.ts`, `verify-session.ts`, `testnet-account.mjs`, build/sandbox helpers |
+| `scripts` | `deploy-vault.ts`, `redteam-demo.ts`, `privacy-demo.ts`, `verify-session.ts`, `nft-demo.ts`, `deploy-registry.ts`, `testnet-account.mjs`, build/sandbox helpers |
 | `guardians/*.md` | prompts for the demo guardians (`strong`, `weak`) |
 | `tests` | sandbox harness + on-chain invariant tests |
 
@@ -145,7 +165,7 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 
 ## Libraries
 
-Rust: `near-sdk` 5.30.1, `proptest`. TypeScript (Node 22): `near-api-js` 7.4.0 (`addFunctionCallAccessKey`, `nep413`), `near-sandbox` 0.3.5 (sandbox v2.14.0), `hono`, `@hono/node-server`, `ethers` (EIP-191 signature recovery), `@phala/dcap-qvl` (Intel TDX quote verification), `tsx`, `node:sqlite`. Not used: `near-sdk-js`, `near-workspaces` (it depends on old `near-api-js` v5).
+Rust: `near-sdk` 5.30.1, `near-contract-standards` 5.30.1, `proptest`. TypeScript (Node 22): `near-api-js` 7.4.0 (`addFunctionCallAccessKey`, `nep413`), `near-sandbox` 0.3.5 (sandbox v2.14.0), `hono`, `@hono/node-server`, `ethers` (EIP-191 signature recovery), `@phala/dcap-qvl` (Intel TDX quote verification), `tsx`, `node:sqlite`. Not used: `near-sdk-js`, `near-workspaces` (it depends on old `near-api-js` v5).
 
 Dependency freshness checked at the end of Layer 1: `near-sdk` and `near-api-js` are at their latest releases; only dev type packages (`@types/node`, `typescript`) have newer majors.
 
