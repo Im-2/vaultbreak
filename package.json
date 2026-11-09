@@ -10,6 +10,7 @@
     "test:contracts": "cargo test -p vaultbreak-vault",
     "test:sandbox": "npm -w tests test",
     "test:server": "npm -w server test",
+    "demo": "node --import tsx scripts/redteam-demo.ts",
     "test": "npm run test:contracts && npm run test:sandbox && npm run test:server"
   }
 }
