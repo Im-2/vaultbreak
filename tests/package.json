@@ -1,0 +1,9 @@
+{
+  "name": "@vaultbreak/tests",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": { "test": "node --import tsx --test --test-timeout=300000 ./vault.test.mjs" },
+  "dependencies": { "near-api-js": "^7.4.0", "near-sandbox": "^0.3.5" },
+  "devDependencies": { "tsx": "^4.20.0" }
+}

@@ -1,0 +1,14 @@
+{
+  "name": "vaultbreak",
+  "private": true,
+  "version": "0.1.0",
+  "license": "MIT",
+  "workspaces": ["tests", "server", "sdk"],
+  "scripts": {
+    "build:contracts": "bash scripts/build-contracts.sh",
+    "test:contracts": "cargo test -p vaultbreak-vault",
+    "test:sandbox": "npm -w tests test",
+    "test:server": "npm -w server test",
+    "test": "npm run test:contracts && npm run test:sandbox && npm run test:server"
+  }
+}

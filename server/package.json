@@ -1,0 +1,9 @@
+{
+  "name": "@vaultbreak/server",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "scripts": { "test": "node --import tsx --test ./test/*.test.ts", "start": "node --import tsx src/index.ts" },
+  "dependencies": { "near-api-js": "^7.4.0" },
+  "devDependencies": { "tsx": "^4.20.0", "typescript": "^5.6.0", "@types/node": "^22.0.0" }
+}
