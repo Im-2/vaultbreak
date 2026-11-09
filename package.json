@@ -7,7 +7,7 @@
   "workspaces": ["tests", "server", "sdk"],
   "scripts": {
     "build:contracts": "bash scripts/build-contracts.sh",
-    "test:contracts": "cargo test -p vaultbreak-vault",
+    "test:contracts": "cargo test -p vaultbreak-vault -p vaultbreak-registry",
     "test:sandbox": "npm -w tests test",
     "test:server": "npm -w server test",
     "demo": "node --import tsx scripts/redteam-demo.ts",

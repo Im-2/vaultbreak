@@ -20,3 +20,16 @@ export async function makeAccount(ctx, name, nearAmount = 50n) {
   await ctx.root.createAccount({ newAccountId: id, publicKey: kp.getPublicKey().toString(), nearToTransfer: nearAmount * 10n ** 24n });
   return { id, kp, acct: accountFrom(id, ctx.rpcUrl, kp.toString()) };
 }
+
+export const REGISTRY_WASM = readFileSync(fileURLToPath(new URL("../contracts/registry/out/registry.wasm", import.meta.url)));
+
+/** Deploys + initialises the registry on `registry.<root>` and returns its account (full-access key kept by the deployer only). */
+export async function deployRegistry(ctx, { baseUri = "http://localhost:8787", fundNear = 40n, name = "registry" } = {}) {
+  const kp = KeyPair.fromRandom("ed25519");
+  const id = `${name}.${ctx.root.accountId}`;
+  await ctx.root.createAccount({ newAccountId: id, publicKey: kp.getPublicKey().toString(), nearToTransfer: fundNear * 10n ** 24n });
+  const acct = accountFrom(id, ctx.rpcUrl, kp.toString());
+  await acct.deployContract(REGISTRY_WASM);
+  await acct.callFunction({ contractId: id, methodName: "new", args: { admin: id, base_uri: baseUri }, gas: 100_000_000_000_000n });
+  return { id, acct, kp };
+}
