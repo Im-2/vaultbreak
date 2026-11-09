@@ -1,0 +1,6 @@
+.env
+node_modules/
+target/
+*.db
+dist/
+.keys/
