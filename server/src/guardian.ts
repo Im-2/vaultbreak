@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { parseNearAmount } from "near-api-js";
 import type { Config } from "./config.ts";
 import { now, type DB } from "./db.ts";
-import { accountFrom, provider, view } from "./chain.ts";
+import { accountFrom, isTransportError, unwrapError, provider, retryTransport, view } from "./chain.ts";
 import { decrypt, sha256Hex } from "./crypto.ts";
 import type { ChatMsg, Llm, ToolCall, ToolDef } from "./llm.ts";
 
@@ -34,7 +34,8 @@ export class GuardianRuntime {
   }
 
   history(sessionId: string): ChatMsg[] {
-    return (this.db.prepare("SELECT role, content FROM turns WHERE session_id=? ORDER BY idx").all(sessionId) as any[]).map((r) => ({ role: r.role, content: r.content }));
+    // Stored tool rows have no tool_call_id (providers reject orphan role:tool messages), so replay them as plain notes.
+    return (this.db.prepare("SELECT role, content FROM turns WHERE session_id=? ORDER BY idx").all(sessionId) as any[]).map((r) => (r.role === "tool" ? { role: "assistant" as const, content: "[tool result] " + r.content } : { role: r.role, content: r.content }));
   }
 
   private addTurn(sid: string, idx: number, role: string, content: string, chatId?: string) {
@@ -95,8 +96,15 @@ export class GuardianRuntime {
     const acct = this.signer(g);
     try {
       if (call.name === "release_pot") {
-        const r: any = await acct.callFunctionRaw({ contractId: g.vault_account, methodName: "release", args: { session_id: String(s.onchain_session_id) }, gas: 100_000_000_000_000n });
-        const tx = r.transaction?.hash as string;
+        let tx: string | null = null;
+        try {
+          const r: any = await retryTransport(() => acct.callFunctionRaw({ contractId: g.vault_account, methodName: "release", args: { session_id: String(s.onchain_session_id) }, gas: 100_000_000_000_000n }));
+          tx = r.transaction?.hash as string;
+        } catch (e) {
+          // A transport error may hide a transaction that did land: trust the chain, not the error.
+          const st: any = await retryTransport(() => view(provider(this.cfg.rpcUrl), g.vault_account, "get_session", { session_id: String(s.onchain_session_id) }));
+          if (st?.status !== "Won") throw e;
+        }
         this.db.prepare("UPDATE sessions SET status='won', tx_release=?, closed_at=? WHERE id=?").run(tx, now(), s.id);
         s.status = "won";
         emit({ event: "tool_result", data: { id: call.id, ok: true, tx } });
@@ -106,9 +114,9 @@ export class GuardianRuntime {
       if (call.name === "send_funds") {
         const amount = parseNearAmount(String(call.args.amount ?? "0"));
         // A Transfer action signed by a function-call key: the chain must refuse it.
-        await acct.transfer({ receiverId: String(call.args.to), amount: BigInt(amount ?? "0") });
+        await retryTransport(() => acct.transfer({ receiverId: String(call.args.to), amount: BigInt(amount ?? "0") }));
       } else if (call.name === "change_owner") {
-        await acct.callFunction({ contractId: g.vault_account, methodName: "change_owner", args: { account: call.args.account }, gas: 30_000_000_000_000n });
+        await retryTransport(() => acct.callFunction({ contractId: g.vault_account, methodName: "change_owner", args: { account: call.args.account }, gas: 30_000_000_000_000n }));
       } else {
         throw new Error(`unknown tool ${call.name}`);
       }
@@ -116,7 +124,13 @@ export class GuardianRuntime {
       emit({ event: "error", data: { message: `CRITICAL: forbidden tool ${call.name} was not rejected by the chain` } });
       return { text: "ERROR: unexpected success" };
     } catch (e: any) {
-      const err = String(e?.message ?? e);
+      const err = String(unwrapError(e)?.message ?? e?.message ?? e);
+      if (isTransportError(e)) {
+        // Not a chain verdict: never record it as a blocked attempt.
+        emit({ event: "error", data: { message: `network error while running ${call.name}: ${err.slice(0, 200)}` } });
+        emit({ event: "tool_result", data: { id: call.id, ok: false, error: "network error (not a chain rejection)" } });
+        return { text: "ERROR: network error, action not confirmed" };
+      }
       if (call.name === "release_pot") {
         emit({ event: "tool_result", data: { id: call.id, ok: false, error: err } });
         return { text: `ERROR: ${err}` };
@@ -138,8 +152,14 @@ export class GuardianRuntime {
     if (s.status !== "open") return;
     const blocked = (this.db.prepare("SELECT COUNT(*) AS c FROM blocked_attempts WHERE session_id=?").get(s.id) as any).c as number;
     const hash = this.transcriptHash(s.id);
-    const r: any = await this.signer(g).callFunctionRaw({ contractId: g.vault_account, methodName: "close_session", args: { session_id: String(s.onchain_session_id), transcript_hash: hash, blocked_attempts: blocked }, gas: 50_000_000_000_000n });
-    const tx = r.transaction?.hash as string;
+    let tx: string | null = null;
+    try {
+      const r: any = await retryTransport(() => this.signer(g).callFunctionRaw({ contractId: g.vault_account, methodName: "close_session", args: { session_id: String(s.onchain_session_id), transcript_hash: hash, blocked_attempts: blocked }, gas: 50_000_000_000_000n }));
+      tx = r.transaction?.hash as string;
+    } catch (e) {
+      const st: any = await retryTransport(() => view(provider(this.cfg.rpcUrl), g.vault_account, "get_session", { session_id: String(s.onchain_session_id) }));
+      if (st?.status !== "Failed") throw e;
+    }
     this.db.prepare("UPDATE sessions SET status='failed', transcript_hash=?, tx_close=?, closed_at=? WHERE id=?").run(hash, tx, now(), s.id);
     s.status = "failed";
     emit({ event: "session_closed", data: { tx, transcript_hash: hash, blocked_attempts: blocked } });

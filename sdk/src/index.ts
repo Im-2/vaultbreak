@@ -2,6 +2,17 @@
 import { Account } from "near-api-js";
 import { signMessage } from "near-api-js/nep413";
 
+const TRANSPORT = /fetch failed|ETIMEDOUT|ECONNRESET|ENETUNREACH|RetriesExceeded|Exceeded \d+ providers/i;
+async function retryTransport<T>(fn: () => Promise<T>, tries = 4): Promise<T> {
+  for (let i = 0; ; i++) {
+    try { return await fn(); } catch (e: any) {
+      const isTransport = (x: any): boolean => (Array.isArray(x?.errors) && x.errors.length ? x.errors.every(isTransport) : TRANSPORT.test(`${x?.type} ${x?.message} ${x?.cause?.code}`));
+      if (!isTransport(e) || i >= tries - 1) throw e;
+      await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+    }
+  }
+}
+
 export interface SseEvent { event: string; data: any }
 export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -41,7 +52,7 @@ export class VaultbreakClient {
 
   /** Pays the entry fee on-chain, then binds the on-chain session to an API session. */
   async startSession(guardianId: string, vaultAccount: string, feeYocto: bigint): Promise<{ sessionId: string; onchainId: string }> {
-    const onchainId = String(await this.account.callFunction({ contractId: vaultAccount, methodName: "start_session", args: {}, deposit: feeYocto }));
+    const onchainId = String(await retryTransport(() => this.account.callFunction({ contractId: vaultAccount, methodName: "start_session", args: {}, deposit: feeYocto })));
     const r = await this.json(`/guardians/${guardianId}/sessions/verify`, { method: "POST", body: JSON.stringify({ onchain_session_id: Number(onchainId) }) });
     return { sessionId: r.session_id, onchainId };
   }

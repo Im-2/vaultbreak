@@ -4,7 +4,7 @@
   "type": "module",
   "version": "0.1.0",
   "scripts": {
-    "test": "node --import tsx --test --test-timeout=600000 ./test/config.test.ts ./test/e2e.test.ts ./test/live.test.ts",
+    "test": "node --import tsx --test --test-timeout=600000 ./test/config.test.ts ./test/chain.test.ts ./test/e2e.test.ts ./test/live.test.ts",
     "start": "node --import tsx src/index.ts",
     "test:live": "node --import tsx --test --test-timeout=120000 ./test/live.test.ts"
   },

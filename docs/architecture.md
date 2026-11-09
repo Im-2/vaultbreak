@@ -3,7 +3,7 @@
 ## Verify the vault has no full-access key (any RPC)
 
 ```bash
-curl -s https://rpc.testnet.near.org -H 'content-type: application/json' -d '{
+curl -s https://test.rpc.fastnear.com -H 'content-type: application/json' -d '{
  "jsonrpc":"2.0","id":1,"method":"query",
  "params":{"request_type":"view_access_key_list","finality":"final","account_id":"strong.vbreak-deployer-1109.testnet"}}'
 ```

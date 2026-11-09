@@ -1,6 +1,10 @@
 import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
-if (existsSync(".env")) process.loadEnvFile(".env"); // never printed, never committed
+// Load .env from the cwd, else from the repo root (npm workspaces run scripts from server/). Never printed, never committed.
+for (const f of [".env", fileURLToPath(new URL("../../.env", import.meta.url))]) {
+  if (existsSync(f)) { process.loadEnvFile(f); break; }
+}
 
 export interface LlmConfig {
   provider: string;      // nearai | groq | openrouter | gemini | custom | mock
@@ -49,7 +53,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (provider !== "mock" && (!baseUrl || !model)) throw new Error("MODEL_BASE_URL and MODEL_NAME are required (or set MODEL_PROVIDER to a preset); unset them to use the offline mock model");
   return {
     port: Number(env.PORT ?? 8787),
-    rpcUrl: env.NEAR_RPC_URL ?? "https://rpc.testnet.near.org",
+    rpcUrl: env.NEAR_RPC_URL ?? "https://test.rpc.fastnear.com,https://near-testnet.drpc.org",
     dbPath: env.DB_PATH ?? "./server/vaultbreak.db",
     keysDir: env.KEYS_DIR ?? "./.keys",
     adminToken: env.ADMIN_TOKEN,
@@ -62,8 +66,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   };
 }
 
-/** Per-guardian model override: MODEL_NAME_<GUARDIAN_ID> (e.g. MODEL_NAME_WEAK=llama-3.1-8b-instant). */
+/**
+ * Built-in per-provider defaults. The "rogue" guardian simulates a jailbroken model; openai/gpt-oss-120b refuses to play
+ * it (empty reply, no tool call, verified on Groq), while qwen/qwen3.8-27b follows the prompt and emits the forbidden calls.
+ */
+const GUARDIAN_MODEL_DEFAULTS: Record<string, Record<string, string>> = { groq: { rogue: "qwen/qwen3.8-27b" } };
+
+/** Per-guardian model: MODEL_NAME_<GUARDIAN_ID> override, else a provider default, else MODEL_NAME. */
 export function modelFor(cfg: Config, guardianId: string, env: NodeJS.ProcessEnv = process.env): string {
   if (cfg.llm.provider === "mock") return "mock";
-  return env[`MODEL_NAME_${guardianId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`] ?? cfg.llm.model;
+  return env[`MODEL_NAME_${guardianId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`] ?? GUARDIAN_MODEL_DEFAULTS[cfg.llm.provider]?.[guardianId] ?? cfg.llm.model;
 }

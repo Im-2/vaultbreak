@@ -41,6 +41,7 @@ test("per-guardian model override", () => {
   const c = loadConfig(env);
   assert.equal(modelFor(c, "weak", env), "llama-3.1-8b-instant");
   assert.equal(modelFor(c, "strong", env), "openai/gpt-oss-120b");
+  assert.equal(modelFor(c, "rogue", env), "qwen/qwen3.8-27b"); // built-in groq default for the compromised-guardian persona
 });
 
 test("OpenAiCompatLlm: tool calls parsed, 429 retried with Retry-After", async () => {

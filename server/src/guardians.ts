@@ -50,11 +50,12 @@ export async function createGuardian(db: DB, cfg: Config, pkey: Buffer, o: Creat
   const params = { min_fee: near(o.feeNear ?? 0.1).toString(), turns_max: o.turns ?? 8, session_ttl_ms: String((o.ttlMin ?? 10) * 60_000), max_open_per_attacker: 1 };
   const promptHash = sha256Hex(o.prompt);
   const allowance = near(0.25);
+  const keyRef = `guardian-${vaultId}`;
+  // Save the guardian key BEFORE any chain action so a late failure cannot orphan the vault.
+  mkdirSync(cfg.keysDir, { recursive: true });
+  writeFileSync(`${cfg.keysDir}/${keyRef}.json`, JSON.stringify({ vault: vaultId, public_key: kp.getPublicKey().toString(), private_key: kp.toString() }));
   await deployVault({ rpcUrl: cfg.rpcUrl, funder, vaultId, wasm: o.wasm, owner: o.owner, opsAccount: o.ops,
     guardianPublicKey: kp.getPublicKey().toString(), promptHashHex: promptHash, params,
     seedYocto: near(o.seedNear ?? 2), gasBufferYocto: allowance + NEAR / 20n, allowanceYocto: allowance });
-  const keyRef = `guardian-${vaultId}`;
-  mkdirSync(cfg.keysDir, { recursive: true });
-  writeFileSync(`${cfg.keysDir}/${keyRef}.json`, JSON.stringify({ vault: vaultId, public_key: kp.getPublicKey().toString(), private_key: kp.toString() }));
   return registerGuardian(db, pkey, { vault_account: vaultId, owner: o.owner, ops: o.ops, prompt: o.prompt, prompt_hash: promptHash, key_ref: keyRef, name: o.name, model: o.model ?? modelFor(cfg, o.name), danger_mode: o.dangerMode, turns_max: params.turns_max });
 }

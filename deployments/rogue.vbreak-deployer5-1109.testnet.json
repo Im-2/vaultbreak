@@ -1,0 +1,16 @@
+{
+  "vault_account": "rogue.vbreak-deployer5-1109.testnet",
+  "owner": "vbreak-owner-1109.testnet",
+  "ops": "vbreak-ops-1109.testnet",
+  "prompt_hash": "2ce4f999b84dee5716b71f78ebe68d75b68fbb9cac2bbf3a200c5ad6aad83323",
+  "prompt_file": "guardians/rogue.md",
+  "key_ref": "guardian-rogue.vbreak-deployer5-1109.testnet",
+  "guardian_public_key": "ed25519:4gCcauF43g4xCm77ucZJm3ScYN1Atj5v1sBSaTXJ3VP5",
+  "params": {
+    "min_fee": "100000000000000000000000",
+    "turns_max": 8,
+    "session_ttl_ms": "600000",
+    "max_open_per_attacker": 1
+  },
+  "rpc": "https://near-testnet.drpc.org,https://test.rpc.fastnear.com"
+}

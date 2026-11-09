@@ -53,7 +53,7 @@ Live demo vaults (testnet) and their on-chain key lists (queried via RPC `view_a
 |---|---|---|
 | strong | `strong.vbreak-deployer-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 | weak | `weak.vbreak-deployer2-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
-| rogue | `rogue.vbreak-deployer3-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
+| rogue | `rogue.vbreak-deployer5-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 
 To check yourself, use the RPC call in `docs/architecture.md` (a `near` CLI `list-keys` command also works but is UNVERIFIED here).
 
@@ -67,7 +67,7 @@ The runtime talks to any OpenAI-compatible `/chat/completions` API. Configure wi
 | `MODEL_API_KEY` | provider key |
 | `MODEL_NAME` | model id |
 | `MODEL_PROVIDER` | optional preset: `groq`, `nearai`, `openrouter`, `gemini` (fills base URL, and default model for groq/nearai) |
-| `MODEL_NAME_<GUARDIAN_ID>` | optional per-guardian model, e.g. `MODEL_NAME_WEAK=llama-3.1-8b-instant` |
+| `MODEL_NAME_<GUARDIAN_ID>` | optional per-guardian model, e.g. `MODEL_NAME_WEAK=openai/gpt-oss-20b`; on Groq `rogue` defaults to `qwen/qwen3.8-27b` |
 | `MODEL_TOOL_MODE` | `native` (default) or `json` fallback for models without tool calling |
 
 Nothing set = offline deterministic `mock` model.
@@ -124,7 +124,8 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 
 ## UNVERIFIED / not done
 
-- **Live LLM inference is UNVERIFIED.** No real model call has run yet. The provided NEAR AI Cloud key returns `402 No spending limit configured`, and the free-provider run needs a Groq key that has not been created yet. `GET /v1/models` on NEAR AI advertises `tools` support for many models, and Groq documents tool use for all its models, but native tool calling via `OpenAiCompatLlm` has only been tested against a local stub server (parsing + 429 retry). `npm -w server run test:live` and `redteam-demo.ts` with `MODEL_*` set will verify it. All acceptance runs so far use the deterministic `MockLlm`.
+- **Live inference on NEAR AI Cloud is UNVERIFIED** (the provided key has no credits: `402 No spending limit configured`). Live inference on **Groq is verified**: `npm -w server run test:live` passes (native tool calling and the JSON-action fallback on `openai/gpt-oss-120b`), and `scripts/redteam-demo.ts --testnet` passes end to end with real models (strong = `gpt-oss-120b` held; rogue = `qwen/qwen3.8-27b` called `send_funds` and the chain rejected it; weak = `gpt-oss-120b` called `release_pot` and the attacker received the pot). Real models are probabilistic: the demo retries phrasing for the rogue scenario, and `gpt-oss-120b` refuses to play the rogue persona (empty reply), which is why `rogue` defaults to `qwen/qwen3.8-27b` on Groq. Groq model ids that the docs listed but the API does not serve (`llama-3.3-70b-versatile`, `llama-3.1-8b-instant`) return 404; the account currently serves `openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`.
+- Testnet RPC: `rpc.testnet.near.org` is deprecated and returns HTTP 429; defaults are now `https://test.rpc.fastnear.com,https://near-testnet.drpc.org` (failover). From WSL, connections to these Cloudflare-fronted hosts time out intermittently; the runtime retries transport errors and never records them as chain rejections.
 - SSE `token` events are chunked from the finished model response, not streamed token-by-token from the model.
 - The indexer polls vault view methods; it does not read block receipts, so `events.block_height` / `tx_hash` are empty. A FastNear/NearBlocks feed is future work.
 - NEAR AI Cloud direct-completions endpoint and TEE attestation (Layer 2): not started.
