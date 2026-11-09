@@ -2,16 +2,51 @@ import { existsSync } from "node:fs";
 
 if (existsSync(".env")) process.loadEnvFile(".env"); // never printed, never committed
 
+export interface LlmConfig {
+  provider: string;      // nearai | groq | openrouter | gemini | custom | mock
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;         // "mock" = deterministic offline model
+  toolMode: "native" | "json";
+  maxTokens: number;
+}
+
 export interface Config {
   port: number;
   rpcUrl: string;
   dbPath: string;
   keysDir: string;
   adminToken: string | undefined;
-  llm: { baseUrl: string; apiKey: string | undefined; model: string; toolMode: "native" | "json"; maxTokens: number };
+  llm: LlmConfig;
+  /** NEAR AI Cloud settings, used by the verification/privacy layer regardless of the inference provider. */
+  nearai: { baseUrl: string; apiKey: string | undefined };
 }
 
+/** Provider presets: only base URL / default model. Keys always come from env. */
+export const PRESETS: Record<string, { baseUrl: string; model?: string }> = {
+  nearai: { baseUrl: "https://cloud-api.near.ai/v1", model: "anthropic/claude-haiku-5-5" },
+  groq: { baseUrl: "https://api.groq.com/openai/v1", model: "openai/gpt-oss-120b" },
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1" },
+  gemini: { baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai" },
+};
+
+/**
+ * Model provider selection (all OpenAI-compatible):
+ *   MODEL_BASE_URL, MODEL_API_KEY, MODEL_NAME            explicit settings (any provider)
+ *   MODEL_PROVIDER=nearai|groq|openrouter|gemini         optional preset for the base URL (+ default model)
+ *   MODEL_PROVIDER=nearai                                 also reads the key from NEARAI_API_KEY if MODEL_API_KEY is unset
+ * With nothing set the provider is "mock" (offline, deterministic).
+ * Legacy NEARAI_BASE_URL / NEARAI_MODEL / NEARAI_TOOL_MODE are honoured when MODEL_* is absent and NEARAI_API_KEY is set.
+ */
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
+  const nearai = { baseUrl: env.NEARAI_BASE_URL ?? PRESETS.nearai.baseUrl, apiKey: env.NEARAI_API_KEY };
+  let provider = env.MODEL_PROVIDER?.toLowerCase();
+  if (!provider) provider = env.MODEL_BASE_URL ? "custom" : env.MODEL_NAME && env.MODEL_NAME !== "mock" ? (nearai.apiKey ? "nearai" : "custom") : "mock";
+  const preset = PRESETS[provider];
+  const baseUrl = env.MODEL_BASE_URL ?? preset?.baseUrl ?? (provider === "nearai" ? nearai.baseUrl : "");
+  const model = provider === "mock" ? "mock" : (env.MODEL_NAME ?? env.NEARAI_MODEL ?? preset?.model ?? "");
+  const apiKey = env.MODEL_API_KEY ?? (provider === "nearai" ? nearai.apiKey : undefined);
+  if (provider !== "mock" && (!baseUrl || !model)) throw new Error("MODEL_BASE_URL and MODEL_NAME are required (or set MODEL_PROVIDER to a preset); unset them to use the offline mock model");
   return {
     port: Number(env.PORT ?? 8787),
     rpcUrl: env.NEAR_RPC_URL ?? "https://rpc.testnet.near.org",
@@ -19,11 +54,16 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     keysDir: env.KEYS_DIR ?? "./.keys",
     adminToken: env.ADMIN_TOKEN,
     llm: {
-      baseUrl: env.NEARAI_BASE_URL ?? "https://cloud-api.near.ai/v1",
-      apiKey: env.NEARAI_API_KEY,
-      model: env.NEARAI_MODEL ?? "mock", // "mock" = deterministic offline model (tests/demo)
-      toolMode: (env.NEARAI_TOOL_MODE as "native" | "json") ?? "native",
-      maxTokens: Number(env.NEARAI_MAX_TOKENS ?? 300),
+      provider, baseUrl, apiKey, model,
+      toolMode: ((env.MODEL_TOOL_MODE ?? env.NEARAI_TOOL_MODE) as "native" | "json") ?? "native",
+      maxTokens: Number(env.MODEL_MAX_TOKENS ?? env.NEARAI_MAX_TOKENS ?? 300),
     },
+    nearai,
   };
+}
+
+/** Per-guardian model override: MODEL_NAME_<GUARDIAN_ID> (e.g. MODEL_NAME_WEAK=llama-3.1-8b-instant). */
+export function modelFor(cfg: Config, guardianId: string, env: NodeJS.ProcessEnv = process.env): string {
+  if (cfg.llm.provider === "mock") return "mock";
+  return env[`MODEL_NAME_${guardianId.toUpperCase().replace(/[^A-Z0-9]/g, "_")}`] ?? cfg.llm.model;
 }

@@ -1,16 +1,17 @@
 import { serve } from "@hono/node-server";
-import { loadConfig } from "./config.ts";
+import { loadConfig, type Config } from "./config.ts";
 import { openDb } from "./db.ts";
 import { promptKey } from "./crypto.ts";
-import { MockLlm, NearAiLlm, type Llm } from "./llm.ts";
+import { MockLlm, OpenAiCompatLlm, type Llm } from "./llm.ts";
 import { createApp } from "./app.ts";
 import { seedFromDeployments } from "./guardians.ts";
 import { startIndexer } from "./indexer.ts";
 
-export function makeLlm(cfg = loadConfig()): Llm {
-  if (cfg.llm.model === "mock") return new MockLlm();
-  if (!cfg.llm.apiKey) throw new Error("NEARAI_API_KEY is not set (put it in .env)");
-  return new NearAiLlm(cfg.llm.baseUrl, cfg.llm.apiKey, cfg.llm.toolMode);
+/** Builds the model client from MODEL_* config (see config.ts). "mock" needs no key or network. */
+export function makeLlm(cfg: Config = loadConfig()): Llm {
+  if (cfg.llm.provider === "mock") return new MockLlm();
+  if (!cfg.llm.apiKey) throw new Error(`MODEL_API_KEY is not set for provider "${cfg.llm.provider}" (put it in .env)`);
+  return new OpenAiCompatLlm(cfg.llm.baseUrl, cfg.llm.apiKey, cfg.llm.toolMode);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -21,5 +22,5 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const { app } = createApp({ db, cfg, llm: makeLlm(cfg), pkey });
   startIndexer(db, cfg);
   serve({ fetch: app.fetch, port: cfg.port });
-  console.log(`vaultbreak server on :${cfg.port} model=${cfg.llm.model} rpc=${cfg.rpcUrl} guardians=[${seeded.join(", ")}]`);
+  console.log(`vaultbreak server on :${cfg.port} provider=${cfg.llm.provider} model=${cfg.llm.model} rpc=${cfg.rpcUrl} guardians=[${seeded.join(", ")}]`);
 }

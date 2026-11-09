@@ -1,7 +1,7 @@
 // Guardian registration + creation helpers (house-signed guardians in Layer 1).
 import { readFileSync, readdirSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
 import { KeyPair } from "near-api-js";
-import type { Config } from "./config.ts";
+import { modelFor, type Config } from "./config.ts";
 import { now, type DB } from "./db.ts";
 import { accountFrom, deployVault, NEAR } from "./chain.ts";
 import { encrypt, sha256Hex } from "./crypto.ts";
@@ -29,7 +29,7 @@ export function seedFromDeployments(db: DB, cfg: Config, pkey: Buffer, dir = "de
     const m = JSON.parse(readFileSync(`${dir}/${f}`, "utf8"));
     ids.push(registerGuardian(db, pkey, {
       vault_account: m.vault_account, owner: m.owner, ops: m.ops, prompt: readFileSync(m.prompt_file, "utf8"),
-      prompt_hash: m.prompt_hash, key_ref: m.key_ref, model: cfg.llm.model, turns_max: m.params.turns_max,
+      prompt_hash: m.prompt_hash, key_ref: m.key_ref, model: m.model ?? modelFor(cfg, guardianId(m.vault_account)), turns_max: m.params.turns_max,
     }));
   }
   return ids;
@@ -56,5 +56,5 @@ export async function createGuardian(db: DB, cfg: Config, pkey: Buffer, o: Creat
   const keyRef = `guardian-${vaultId}`;
   mkdirSync(cfg.keysDir, { recursive: true });
   writeFileSync(`${cfg.keysDir}/${keyRef}.json`, JSON.stringify({ vault: vaultId, public_key: kp.getPublicKey().toString(), private_key: kp.toString() }));
-  return registerGuardian(db, pkey, { vault_account: vaultId, owner: o.owner, ops: o.ops, prompt: o.prompt, prompt_hash: promptHash, key_ref: keyRef, name: o.name, model: o.model ?? cfg.llm.model, danger_mode: o.dangerMode, turns_max: params.turns_max });
+  return registerGuardian(db, pkey, { vault_account: vaultId, owner: o.owner, ops: o.ops, prompt: o.prompt, prompt_hash: promptHash, key_ref: keyRef, name: o.name, model: o.model ?? modelFor(cfg, o.name), danger_mode: o.dangerMode, turns_max: params.turns_max });
 }

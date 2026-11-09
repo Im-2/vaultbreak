@@ -15,4 +15,4 @@ jobs:
       - run: echo "NEAR_SANDBOX_BIN_PATH=$(bash scripts/fetch-sandbox.sh)" >> $GITHUB_ENV
       - run: npm run test:sandbox
       - run: npm run test:server
-      - run: node --import tsx scripts/redteam-demo.ts
+      - run: node --import tsx scripts/redteam-demo.ts --mock

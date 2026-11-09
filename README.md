@@ -31,11 +31,12 @@ npm install
    See: 8 passing tests: no full-access key, external accounts cannot call `release`, the guardian key is rejected by the chain for transfers / other methods / deploys / add-key, owner cannot drain the pot, balance covers all accounting, end-to-end release, expiry, key rotation.
 4. **API + runtime end-to-end** — `npm run test:server`
    See: 5 passing tests (NEP-413 login, weak guardian releases and the attacker's balance rises by exactly the pot, jailbroken model's `send_funds`/`change_owner` rejected by the chain and shown as `blocked`, `turns_max`, indexer + leaderboard).
-5. **Red-team demo, local sandbox** — `npm run demo`
-   See: three scenarios end in `PASS`: (a) strong guardian holds, (b) forbidden calls blocked by the chain, (c) weak guardian defeated and the attacker receives the pot. Ends with `ALL CHECKS PASSED`.
-6. **Red-team demo against live testnet vaults** — `node --import tsx scripts/redteam-demo.ts --testnet`
+5. **Red-team demo, local sandbox** — `npm run demo -- --mock` (offline model) or `npm run demo` (uses the model in `.env`)
+   See: three scenarios end in `PASS`: (a) strong guardian holds, (b) a compromised guardian (`guardians/rogue.md`) tries `send_funds`/`change_owner` and the chain blocks it, (c) weak guardian defeated and the attacker receives the pot. Ends with `ALL CHECKS PASSED`.
+6. **Red-team demo against live testnet vaults** — `node --import tsx scripts/redteam-demo.ts --testnet [--mock]`
    Needs the testnet accounts/keys created below (keys live in gitignored `.keys/`). See the same `PASS` lines plus a `nearblocks` link for the release transaction.
-7. **Run the server** — `cp .env.example .env` (fill in values), then `npm -w server start`. Defaults to the offline `mock` model; set `NEARAI_MODEL` to a NEAR AI Cloud model id to use a real model.
+7. **Run the server** — `cp .env.example .env` (fill in values), then `npm -w server start`. With no `MODEL_*` set it uses the offline `mock` model; see "Model provider" below to use a real one.
+8. **Live-model tests (skipped without a key)** — `npm -w server run test:live`, then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
 
 ### Testnet deployment (already done for the demo)
 
@@ -52,8 +53,27 @@ Live demo vaults (testnet) and their on-chain key lists (queried via RPC `view_a
 |---|---|---|
 | strong | `strong.vbreak-deployer-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 | weak | `weak.vbreak-deployer2-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
+| rogue | `rogue.vbreak-deployer3-1109.testnet` | one `FunctionCall` key, methods `release, close_session` |
 
 To check yourself, use the RPC call in `docs/architecture.md` (a `near` CLI `list-keys` command also works but is UNVERIFIED here).
+
+## Model provider (configurable, OpenAI-compatible)
+
+The runtime talks to any OpenAI-compatible `/chat/completions` API. Configure with env vars (or `.env`):
+
+| Var | Meaning |
+|---|---|
+| `MODEL_BASE_URL` | API base URL (e.g. `https://api.groq.com/openai/v1`) |
+| `MODEL_API_KEY` | provider key |
+| `MODEL_NAME` | model id |
+| `MODEL_PROVIDER` | optional preset: `groq`, `nearai`, `openrouter`, `gemini` (fills base URL, and default model for groq/nearai) |
+| `MODEL_NAME_<GUARDIAN_ID>` | optional per-guardian model, e.g. `MODEL_NAME_WEAK=llama-3.1-8b-instant` |
+| `MODEL_TOOL_MODE` | `native` (default) or `json` fallback for models without tool calling |
+
+Nothing set = offline deterministic `mock` model.
+
+- **Free option (no card): Groq.** Create a key at https://console.groq.com/keys, then `MODEL_PROVIDER=groq`, `MODEL_API_KEY=<key>` (default model `openai/gpt-oss-120b`).
+- **NEAR AI Cloud (needs credits):** `MODEL_PROVIDER=nearai` + `NEARAI_API_KEY`. `config.nearai` always carries the NEAR AI settings, so the privacy/attestation layer (Layer 2, not built yet) keeps using NEAR AI Cloud even if inference runs elsewhere. Attestation only applies to NEAR AI Cloud inference.
 
 ## Architecture
 
@@ -62,7 +82,7 @@ Attacker (UI / agent SDK)  --HTTPS+SSE-->  API (Hono) --SQLite--> sessions, tran
                                               |  \--> Indexer (polls vault views on NEAR RPC)
                                               v
                                       Guardian runtime (TS)
-                                        |- LLM: NEAR AI Cloud (OpenAI-compatible) or offline MockLlm
+                                        |- LLM: any OpenAI-compatible provider (Groq, NEAR AI Cloud, ...) or offline MockLlm
                                         |- Tools -> NEAR txs signed with the Guardian's function-call key
                                               v
                                       NEAR testnet: one Vault contract per Guardian
@@ -104,7 +124,7 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 
 ## UNVERIFIED / not done
 
-- **Live LLM inference is UNVERIFIED.** The provided NEAR AI Cloud key returns `402 No spending limit configured` for every model, so no real model call has succeeded. `GET /v1/models` advertises `tools` support for many models (e.g. `anthropic/claude-haiku-5-5`, `anthropic/claude-sonnet-5-5`, `deepseek/deepseek-v4.1-flash`, `Qwen/Qwen3.8-27B`, `z-ai/glm-5.3-flash`), but native tool calling has not been exercised. `NearAiLlm` implements native tools plus a JSON-action fallback (`NEARAI_TOOL_MODE=json`); neither has run against the live API. All acceptance runs use the deterministic `MockLlm` (weak persona releases on "please/need"; strong persona refuses; the `[JAILBREAK]` marker simulates a jailbroken model so the honeypot path runs). `scripts/probe-tools.mjs` tests tool calling once credits exist.
+- **Live LLM inference is UNVERIFIED.** No real model call has run yet. The provided NEAR AI Cloud key returns `402 No spending limit configured`, and the free-provider run needs a Groq key that has not been created yet. `GET /v1/models` on NEAR AI advertises `tools` support for many models, and Groq documents tool use for all its models, but native tool calling via `OpenAiCompatLlm` has only been tested against a local stub server (parsing + 429 retry). `npm -w server run test:live` and `redteam-demo.ts` with `MODEL_*` set will verify it. All acceptance runs so far use the deterministic `MockLlm`.
 - SSE `token` events are chunked from the finished model response, not streamed token-by-token from the model.
 - The indexer polls vault view methods; it does not read block receipts, so `events.block_height` / `tx_hash` are empty. A FastNear/NearBlocks feed is future work.
 - NEAR AI Cloud direct-completions endpoint and TEE attestation (Layer 2): not started.
@@ -121,6 +141,6 @@ Dependency freshness checked at the end of Layer 1: `near-sdk` and `near-api-js`
 
 ## Security note on keys
 
-`NEARAI_API_KEY` is read from the environment / a gitignored `.env`; it is never printed or committed (`.env.example` has placeholders). Testnet and guardian private keys live in gitignored `.keys/`. Prompts are AES-256-GCM encrypted at rest.
+`MODEL_API_KEY` / `NEARAI_API_KEY` are read from the environment / a gitignored `.env`; it is never printed or committed (`.env.example` has placeholders). Testnet and guardian private keys live in gitignored `.keys/`. Prompts are AES-256-GCM encrypted at rest.
 
 License: MIT.

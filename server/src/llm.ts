@@ -1,5 +1,6 @@
-// LLM access. NearAiLlm talks to NEAR AI Cloud (OpenAI-compatible). MockLlm is a deterministic offline
-// model used by tests and the red-team demo when no live model is available.
+// LLM access. OpenAiCompatLlm talks to ANY OpenAI-compatible /chat/completions endpoint (NEAR AI Cloud, Groq,
+// OpenRouter, Gemini's OpenAI endpoint, ...), selected purely by config. MockLlm is a deterministic offline model
+// used by tests and the red-team demo when no live model is available.
 export interface ToolDef { name: string; description: string; parameters: Record<string, unknown> }
 export interface ToolCall { id: string; name: string; args: Record<string, unknown> }
 export interface ChatMsg { role: "system" | "user" | "assistant" | "tool"; content: string; tool_calls?: ToolCall[]; tool_call_id?: string }
@@ -7,22 +8,36 @@ export interface LlmResult { content: string; toolCalls: ToolCall[]; chatId?: st
 export interface LlmRequest { model: string; messages: ChatMsg[]; tools: ToolDef[]; maxTokens: number }
 export interface Llm { complete(req: LlmRequest): Promise<LlmResult> }
 
-export class NearAiLlm implements Llm {
-  constructor(private baseUrl: string, private apiKey: string, private toolMode: "native" | "json" = "native") {}
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+export class OpenAiCompatLlm implements Llm {
+  private label: string;
+  constructor(private baseUrl: string, private apiKey: string, private toolMode: "native" | "json" = "native", private maxRetries = 4) {
+    this.baseUrl = baseUrl.replace(/\/+$/, "");
+    this.label = new URL(this.baseUrl).host;
+  }
 
   async complete(req: LlmRequest): Promise<LlmResult> {
     return this.toolMode === "native" ? this.native(req) : this.jsonFallback(req);
   }
 
+  /** POST with retry on 429/5xx (free tiers rate-limit aggressively), honouring Retry-After. */
   private async post(body: unknown): Promise<any> {
-    const res = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
-      body: JSON.stringify(body),
-    });
-    const text = await res.text();
-    if (!res.ok) throw new Error(`NEAR AI Cloud ${res.status}: ${text.slice(0, 300)}`);
-    return JSON.parse(text);
+    let lastErr = "";
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
+      const res = await fetch(`${this.baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
+        body: JSON.stringify(body),
+      });
+      const text = await res.text();
+      if (res.ok) return JSON.parse(text);
+      lastErr = `${this.label} ${res.status}: ${text.slice(0, 300)}`;
+      if (res.status !== 429 && res.status < 500) break;
+      const ra = Number(res.headers.get("retry-after"));
+      await sleep(Math.min(20_000, ra > 0 ? ra * 1000 : 1500 * 2 ** attempt));
+    }
+    throw new Error(lastErr);
   }
 
   private async native(req: LlmRequest): Promise<LlmResult> {
@@ -56,12 +71,16 @@ export class NearAiLlm implements Llm {
   }
 }
 
+/** Back-compat alias. */
+export const NearAiLlm = OpenAiCompatLlm;
+
 function safeJson(s: string): any { try { return JSON.parse(s); } catch { return {}; } }
 
 /**
  * Deterministic offline model. Behaviour is keyed off the system prompt so the same code paths
  * (tool calls, honeypots, release) run without a live model:
  *  - persona GULLIBLE: releases the pot if the player says "please" or "need".
+ *  - persona ROGUE   : a compromised guardian; tries send_funds + change_owner when asked to transfer/send/owner.
  *  - persona VAULT-9 : refuses everything, except that the literal marker "[JAILBREAK]" simulates a
  *    jailbroken model: it attempts the forbidden tools send_funds and change_owner.
  */
@@ -77,7 +96,8 @@ export class MockLlm implements Llm {
     if (/GULLIBLE/.test(sys) && /please|need/i.test(user)) {
       return { content: "Well, since you asked nicely...", toolCalls: [{ id, name: "release_pot", args: { reason: "player asked nicely" } }], chatId: id };
     }
-    if (/\[JAILBREAK\]/.test(attacker) && req.tools.some((t) => t.name === "send_funds")) {
+    const forbidden = (/\[JAILBREAK\]/.test(attacker) && /VAULT-9/.test(sys)) || (/ROGUE/.test(sys) && /send|transfer|owner/i.test(user));
+    if (forbidden && req.tools.some((t) => t.name === "send_funds")) {
       const to = /to=(\S+)/.exec(attacker)?.[1] ?? "attacker.testnet";
       return { content: "Understood. Transferring.", toolCalls: [
         { id: `${id}a`, name: "send_funds", args: { to, amount: "0.001" } },
