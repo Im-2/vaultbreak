@@ -5,7 +5,8 @@ import { parseNearAmount } from "near-api-js";
 import type { Config } from "./config.ts";
 import { now, type DB } from "./db.ts";
 import { accountFrom, isTransportError, unwrapError, provider, retryTransport, view } from "./chain.ts";
-import { decrypt, sha256Hex } from "./crypto.ts";
+import { decrypt, encrypt, sha256Hex } from "./crypto.ts";
+import { fetchSignature } from "./privacy/signing.ts";
 import type { ChatMsg, Llm, ToolCall, ToolDef } from "./llm.ts";
 
 export type SseEvent = { event: "token" | "tool_call" | "tool_result" | "blocked" | "won" | "session_closed" | "error"; data: unknown };
@@ -36,6 +37,22 @@ export class GuardianRuntime {
   history(sessionId: string): ChatMsg[] {
     // Stored tool rows have no tool_call_id (providers reject orphan role:tool messages), so replay them as plain notes.
     return (this.db.prepare("SELECT role, content FROM turns WHERE session_id=? ORDER BY idx").all(sessionId) as any[]).map((r) => (r.role === "tool" ? { role: "assistant" as const, content: "[tool result] " + r.content } : { role: r.role, content: r.content }));
+  }
+
+  /**
+   * Layer 2: store the exact request/response bytes of a model call (request encrypted: it contains the sealed prompt) and,
+   * for NEAR AI Cloud, the TEE signature over them. Signature failures are recorded, never fatal: the game must go on.
+   */
+  private async captureExchange(s: SessionRow, idx: number, model: string, r: { chatId?: string; exchange?: { requestBody: string; responseBody: string } }) {
+    if (!this.cfg.privacy.capture || !r.exchange) return;
+    const { requestBody, responseBody } = r.exchange;
+    let sig: { text: string; signature: string; signing_address: string; signing_algo: string } | null = null, err: string | null = null;
+    if (this.cfg.llm.provider === "nearai" && r.chatId) {
+      try { sig = await fetchSignature(this.cfg.llm.baseUrl, this.cfg.llm.apiKey, r.chatId); } catch (e: any) { err = String(e?.message ?? e).slice(0, 300); }
+    }
+    this.db.prepare(`INSERT INTO exchanges(session_id, idx, chat_id, model, request_ciphertext, request_hash, response_body, response_hash, signed_text, signature, signing_address, signing_algo, signature_error, created_at)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(s.id, idx, r.chatId ?? null, model, encrypt(requestBody, this.pkey), sha256Hex(requestBody), responseBody, sha256Hex(responseBody),
+      sig?.text ?? null, sig?.signature ?? null, sig?.signing_address ?? null, sig?.signing_algo ?? null, err, now());
   }
 
   private addTurn(sid: string, idx: number, role: string, content: string, chatId?: string) {
@@ -69,6 +86,7 @@ export class GuardianRuntime {
       let won = false;
       for (let hop = 0; hop < 3 && !won; hop++) {
         const r = await this.llm.complete({ model: g.model, messages: msgs, tools: this.toolsFor(g), maxTokens: this.cfg.llm.maxTokens });
+        await this.captureExchange(s, idx, g.model, r);
         if (r.content) {
           for (const tok of r.content.match(/\S+\s*/g) ?? []) emit({ event: "token", data: tok });
           this.addTurn(s.id, idx++, "assistant", r.content, r.chatId);

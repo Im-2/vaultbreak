@@ -26,6 +26,13 @@ export function openDb(path: string): DB {
     CREATE TABLE IF NOT EXISTS events(
       id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, guardian_id TEXT, payload TEXT NOT NULL,
       block_height INTEGER, tx_hash TEXT, created_at INTEGER NOT NULL, UNIQUE(kind, guardian_id, payload));
+    -- Layer 2: one row per model call. request is AES-encrypted (it contains the sealed system prompt) until the guardian is revealed.
+    CREATE TABLE IF NOT EXISTS exchanges(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, idx INTEGER NOT NULL, chat_id TEXT, model TEXT NOT NULL,
+      request_ciphertext TEXT NOT NULL, request_hash TEXT NOT NULL, response_body TEXT NOT NULL, response_hash TEXT NOT NULL,
+      signed_text TEXT, signature TEXT, signing_address TEXT, signing_algo TEXT, signature_error TEXT, created_at INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS attestations(
+      id INTEGER PRIMARY KEY AUTOINCREMENT, guardian_id TEXT NOT NULL, model TEXT NOT NULL, nonce TEXT NOT NULL, report_json TEXT NOT NULL, fetched_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_nonces(nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_tokens(token TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
   `);

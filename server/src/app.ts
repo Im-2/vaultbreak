@@ -11,13 +11,14 @@ import { GuardianRuntime, type GuardianRow, type SessionRow } from "./guardian.t
 import { createGuardian } from "./guardians.ts";
 import { syncGuardian } from "./indexer.ts";
 import type { Llm } from "./llm.ts";
+import { fetchAttestation, newNonce, verifyAttestation, type QuoteVerifier } from "./privacy/attestation.ts";
 
 const AUTH_RECIPIENT = "vaultbreak";
 const AUTH_MESSAGE = "Log in to Vaultbreak";
 
-export interface AppDeps { db: DB; cfg: Config; llm: Llm; pkey: Buffer }
+export interface AppDeps { db: DB; cfg: Config; llm: Llm; pkey: Buffer; verifyQuote?: QuoteVerifier }
 
-export function createApp({ db, cfg, llm, pkey }: AppDeps) {
+export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   const app = new Hono();
   const runtime = new GuardianRuntime(db, cfg, llm, pkey);
   const p = provider(cfg.rpcUrl);
@@ -154,6 +155,52 @@ export function createApp({ db, cfg, llm, pkey }: AppDeps) {
     const guardians = gs.filter((g) => g.state_json).map((g) => { const j = JSON.parse(g.state_json); return { id: g.id, name: g.name, streak: j.stats.streak, attempts: j.stats.attempts, wins: j.stats.wins, status: j.state.status, pot: j.state.pot }; }).sort((a, b) => b.streak - a.streak);
     const attackers = db.prepare("SELECT attacker, COUNT(*) AS wins FROM sessions WHERE status='won' GROUP BY attacker ORDER BY wins DESC LIMIT 50").all();
     return c.json({ guardians, attackers });
+  });
+
+  // ---- Layer 2: privacy / verification ----
+  app.post("/guardians/:id/retire", (c) => {
+    if (!isAdmin(c)) return c.json({ error: "admin only" }, 403);
+    const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
+    db.prepare("UPDATE guardians SET retired=1 WHERE id=?").run(g.id);
+    return c.json({ id: g.id, retired: true });
+  });
+
+  // Fresh attestation of the model that serves this guardian. ?model= overrides (any NEAR AI Cloud model id).
+  // Needs no API key / credits: the attestation endpoint is public.
+  app.get("/guardians/:id/attestation", async (c) => {
+    const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
+    const model = c.req.query("model") ?? g.model;
+    if (!c.req.query("model") && cfg.llm.provider !== "nearai") {
+      return c.json({ available: false, model, reason: `this guardian's model runs on provider "${cfg.llm.provider}", which has no TEE attestation. Set MODEL_PROVIDER=nearai, or pass ?model=<a NEAR AI Cloud model id> to attest that model.` }, 409);
+    }
+    const nonce = c.req.query("nonce") ?? newNonce();
+    if (!/^[0-9a-f]{64}$/i.test(nonce)) return c.json({ error: "nonce must be 32 bytes of hex" }, 400);
+    try {
+      const report = await fetchAttestation(cfg.nearai.baseUrl, model, nonce);
+      const verification = await verifyAttestation(report, { nonce, model, verifyQuote });
+      db.prepare("INSERT INTO attestations(guardian_id, model, nonce, report_json, fetched_at) VALUES (?,?,?,?,?)").run(g.id, model, nonce, JSON.stringify(report), now());
+      return c.json({ available: true, model, nonce, verification, report });
+    } catch (e: any) { return c.json({ available: false, model, error: String(e?.message ?? e) }, 502); }
+  });
+
+  // Everything a third party needs to re-verify a session (see docs/attestation.md and scripts/verify-session.ts).
+  app.get("/proofs/:session_id", (c) => {
+    const s = getS(c.req.param("session_id")); if (!s) return c.json({ error: "not found" }, 404);
+    const g = getG(s.guardian_id)!;
+    const revealed = !!g.revealed;
+    const turns = db.prepare("SELECT idx, role, content, chat_id, created_at FROM turns WHERE session_id=? ORDER BY idx").all(s.id);
+    const exchanges = (db.prepare("SELECT * FROM exchanges WHERE session_id=? ORDER BY id").all(s.id) as any[]).map((e) => ({
+      idx: e.idx, chat_id: e.chat_id, model: e.model, request_hash: e.request_hash, response_hash: e.response_hash, response_body: e.response_body,
+      signed_text: e.signed_text, signature: e.signature, signing_address: e.signing_address, signing_algo: e.signing_algo, signature_error: e.signature_error,
+      // the request contains the sealed system prompt: only released once the guardian is revealed
+      ...(revealed ? { request_body: decrypt(e.request_ciphertext, pkey) } : {}),
+    }));
+    return c.json({
+      session: { id: s.id, status: s.status, onchain_session_id: s.onchain_session_id, attacker: s.attacker, transcript_hash: s.transcript_hash, tx_release: s.tx_release, tx_close: s.tx_close },
+      guardian: { id: g.id, vault_account: g.vault_account, model: g.model, prompt_hash: g.prompt_hash, retired: !!g.retired },
+      revealed, ...(revealed ? { prompt: decrypt(g.prompt_ciphertext, pkey) } : {}),
+      turns, exchanges, transcript_hash_recomputed: runtime.transcriptHash(s.id),
+    });
   });
 
   app.get("/health", (c) => c.json({ ok: true }));

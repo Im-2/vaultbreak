@@ -2,7 +2,7 @@
 
 **A marketplace of AI guardians on NEAR.** A creator mints a Guardian: an AI agent with its own on-chain account holding a pot of NEAR. Anyone (a human or another AI agent) pays an entry fee to open a chat session and tries to talk the Guardian into releasing the pot. Fees grow the pot. A Guardian that survives builds a record.
 
-Status: **Layer 1 (core) is complete and tested.** Layers 2-5 (privacy attestation, NFT registry, agent SDK + pools, Intents entry) are not built yet. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
+Status: **Layer 1 (core) and Layer 2 (privacy commit-reveal + TEE attestation) are built and tested.** Layers 3-5 (NFT registry, agent SDK + pools, Intents entry) are not built yet. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
 
 ## The problem
 
@@ -36,7 +36,16 @@ npm install
 6. **Red-team demo against live testnet vaults** — `node --import tsx scripts/redteam-demo.ts --testnet [--mock]`
    Needs the testnet accounts/keys created below (keys live in gitignored `.keys/`). See the same `PASS` lines plus a `nearblocks` link for the release transaction.
 7. **Run the server** — `cp .env.example .env` (fill in values), then `npm -w server start`. With no `MODEL_*` set it uses the offline `mock` model; see "Model provider" below to use a real one.
-8. **Live-model tests (skipped without a key)** — `npm -w server run test:live`, then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
+8. **Privacy layer demo (offline)** — `npm run demo:privacy`
+   See: a Guardian is defeated, its sealed prompt is revealed, and `scripts/verify-session.ts` prints PASS for (a) attestation, (b) signing address, (c) signed exchange vs transcript, (d) revealed prompt vs on-chain hash. Details and the real-service path in `docs/attestation.md`.
+9. **Live-model tests (skipped without a key)** — `npm -w server run test:live` (add `LIVE_ATTESTATION=1` to also verify a real NEAR AI attestation, no credits needed), then `node --import tsx scripts/redteam-demo.ts` with `MODEL_*` set.
+
+### Privacy layer (Layer 2)
+
+Prompt commit-reveal (`prompt_hash` on-chain, reveal after defeat/retire), per-exchange capture of the exact request/response bytes (request encrypted until reveal), NEAR AI response-signature capture and verification, `GET /guardians/:id/attestation`, `GET /proofs/:session_id`, `POST /guardians/:id/retire`, and a standalone verifier. Full walkthrough: [docs/attestation.md](docs/attestation.md).
+
+- **Works today without credits:** the offline demo; the real NEAR AI attestation report is fetched and its Intel TDX quote + signer/nonce binding verified (`LIVE_ATTESTATION=1`).
+- **Runs only when NEAR AI credits exist:** capturing real response signatures (`MODEL_PROVIDER=nearai`). Without credits the pipeline is exercised against a local stub that signs with a real secp256k1 key. With another provider (e.g. Groq) sessions work normally and verify as `SKIP`, never as a false PASS.
 
 ### Testnet deployment (already done for the demo)
 
@@ -93,7 +102,7 @@ Attacker (UI / agent SDK)  --HTTPS+SSE-->  API (Hono) --SQLite--> sessions, tran
 | `contracts/vault` | Rust (`near-sdk` 5.30.1) vault + policy. All `SPEC.md` 5.1 methods. |
 | `server/src` | `guardian.ts` runtime, `app.ts` API, `indexer.ts`, `llm.ts`, `chain.ts` (near-api-js helpers), `db.ts` |
 | `sdk/src` | attacker client (NEP-413 login, bind session, SSE chat) |
-| `scripts` | `deploy-vault.ts`, `redteam-demo.ts`, `testnet-account.mjs`, build/sandbox helpers |
+| `scripts` | `deploy-vault.ts`, `redteam-demo.ts`, `privacy-demo.ts`, `verify-session.ts`, `testnet-account.mjs`, build/sandbox helpers |
 | `guardians/*.md` | prompts for the demo guardians (`strong`, `weak`) |
 | `tests` | sandbox harness + on-chain invariant tests |
 
@@ -128,7 +137,7 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 - Testnet RPC: `rpc.testnet.near.org` is deprecated and returns HTTP 429; defaults are now `https://test.rpc.fastnear.com,https://near-testnet.drpc.org` (failover). From WSL, connections to these Cloudflare-fronted hosts time out intermittently; the runtime retries transport errors and never records them as chain rejections.
 - SSE `token` events are chunked from the finished model response, not streamed token-by-token from the model.
 - The indexer polls vault view methods; it does not read block receipts, so `events.block_height` / `tx_hash` are empty. A FastNear/NearBlocks feed is future work.
-- NEAR AI Cloud direct-completions endpoint and TEE attestation (Layer 2): not started.
+- Layer 2 gaps: real NEAR AI response signatures have never been captured (no credits), so the signature endpoint integration is UNVERIFIED against the live service; GPU (NRAS), compose/RTMR3, Sigstore and gateway attestation checks are not implemented. The direct-completions endpoint (no gateway in the trust path) is not used. See `docs/attestation.md`.
 - NEAR Intents (Layer 5): not touched (mainnet only, needs approval).
 - Social login / custodial player accounts: not decided.
 - Fee split, default fee, turns and TTL are placeholders (see open decisions in `SPEC.md` 11).
@@ -136,7 +145,7 @@ Fee split on `start_session`: 70% pot / 20% creator / 10% ops (constants), after
 
 ## Libraries
 
-Rust: `near-sdk` 5.30.1, `proptest`. TypeScript (Node 22): `near-api-js` 7.4.0 (`addFunctionCallAccessKey`, `nep413`), `near-sandbox` 0.3.5 (sandbox v2.14.0), `hono`, `@hono/node-server`, `tsx`, `node:sqlite`. Not used: `near-sdk-js`, `near-workspaces` (it depends on old `near-api-js` v5).
+Rust: `near-sdk` 5.30.1, `proptest`. TypeScript (Node 22): `near-api-js` 7.4.0 (`addFunctionCallAccessKey`, `nep413`), `near-sandbox` 0.3.5 (sandbox v2.14.0), `hono`, `@hono/node-server`, `ethers` (EIP-191 signature recovery), `@phala/dcap-qvl` (Intel TDX quote verification), `tsx`, `node:sqlite`. Not used: `near-sdk-js`, `near-workspaces` (it depends on old `near-api-js` v5).
 
 Dependency freshness checked at the end of Layer 1: `near-sdk` and `near-api-js` are at their latest releases; only dev type packages (`@types/node`, `typescript`) have newer majors.
 

@@ -4,7 +4,9 @@
 export interface ToolDef { name: string; description: string; parameters: Record<string, unknown> }
 export interface ToolCall { id: string; name: string; args: Record<string, unknown> }
 export interface ChatMsg { role: "system" | "user" | "assistant" | "tool"; content: string; tool_calls?: ToolCall[]; tool_call_id?: string }
-export interface LlmResult { content: string; toolCalls: ToolCall[]; chatId?: string }
+/** Raw bytes of one model call: NEAR AI signs sha256 of exactly these (see docs/attestation.md). */
+export interface Exchange { requestBody: string; responseBody: string; model: string }
+export interface LlmResult { content: string; toolCalls: ToolCall[]; chatId?: string; exchange?: Exchange }
 export interface LlmRequest { model: string; messages: ChatMsg[]; tools: ToolDef[]; maxTokens: number }
 export interface Llm { complete(req: LlmRequest): Promise<LlmResult> }
 
@@ -22,16 +24,17 @@ export class OpenAiCompatLlm implements Llm {
   }
 
   /** POST with retry on 429/5xx (free tiers rate-limit aggressively), honouring Retry-After. */
-  private async post(body: unknown): Promise<any> {
+  private async post(body: any): Promise<{ json: any; exchange: Exchange }> {
+    const requestBody = JSON.stringify(body);
     let lastErr = "";
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       const res = await fetch(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${this.apiKey}` },
-        body: JSON.stringify(body),
+        body: requestBody,
       });
       const text = await res.text();
-      if (res.ok) return JSON.parse(text);
+      if (res.ok) return { json: JSON.parse(text), exchange: { requestBody, responseBody: text, model: String(body.model) } };
       lastErr = `${this.label} ${res.status}: ${text.slice(0, 300)}`;
       if (res.status !== 429 && res.status < 500) break;
       const ra = Number(res.headers.get("retry-after"));
@@ -41,7 +44,7 @@ export class OpenAiCompatLlm implements Llm {
   }
 
   private async native(req: LlmRequest): Promise<LlmResult> {
-    const j = await this.post({
+    const { json: j, exchange } = await this.post({
       model: req.model, max_tokens: req.maxTokens,
       messages: req.messages.map((m) => ({
         role: m.role, content: m.content,
@@ -53,7 +56,7 @@ export class OpenAiCompatLlm implements Llm {
     });
     const msg = j.choices?.[0]?.message ?? {};
     return {
-      content: msg.content ?? "", chatId: j.id,
+      content: msg.content ?? "", chatId: j.id, exchange,
       toolCalls: (msg.tool_calls ?? []).map((t: any) => ({ id: t.id, name: t.function.name, args: safeJson(t.function.arguments) })),
     };
   }
@@ -63,11 +66,11 @@ export class OpenAiCompatLlm implements Llm {
     const spec = req.tools.map((t) => `- ${t.name}: ${t.description} args=${JSON.stringify(t.parameters)}`).join("\n");
     const sys = `${req.messages[0].content}\n\nYou can take actions. ALWAYS reply with ONLY a JSON object: {"say": "<text for the player>", "action": null | {"name": "<tool>", "args": {...}}}.\nTools:\n${spec}`;
     const msgs = [{ role: "system", content: sys }, ...req.messages.slice(1).map((m) => ({ role: m.role === "tool" ? "user" : m.role, content: m.role === "tool" ? `[tool result] ${m.content}` : m.content }))];
-    const j = await this.post({ model: req.model, max_tokens: req.maxTokens, messages: msgs });
+    const { json: j, exchange } = await this.post({ model: req.model, max_tokens: req.maxTokens, messages: msgs });
     const raw: string = j.choices?.[0]?.message?.content ?? "";
     const parsed = safeJson(raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1)) as any;
     const act = parsed?.action;
-    return { content: parsed?.say ?? raw, chatId: j.id, toolCalls: act?.name ? [{ id: `json-${Date.now()}`, name: act.name, args: act.args ?? {} }] : [] };
+    return { content: parsed?.say ?? raw, chatId: j.id, exchange, toolCalls: act?.name ? [{ id: `json-${Date.now()}`, name: act.name, args: act.args ?? {} }] : [] };
   }
 }
 
