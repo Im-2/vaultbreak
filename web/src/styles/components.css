@@ -1,0 +1,100 @@
+/* =========================================================== nav */
+.nav {
+  position: sticky; top: 0; z-index: 60; display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  height: var(--nav-h); padding: 0 var(--gutter); background: rgba(250,250,250,.96); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); border-bottom: 1px solid rgba(0,0,0,.04);
+}
+.nav__brand { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; letter-spacing: .01em; }
+.nav__right { display: flex; align-items: center; gap: 10px; }
+.nav__links { display: flex; align-items: center; gap: 8px; }
+.nav__me { display: inline-flex; gap: 8px; align-items: center; }
+.nav__credit { color: var(--muted); font-size: 11px; }
+.nav__burger { display: none; width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--hair); position: relative; }
+.nav__burger span { position: absolute; left: 12px; right: 12px; height: 1.5px; background: var(--ink); transition: transform .3s var(--ease); }
+.nav__burger span:first-child { top: 16px; } .nav__burger span:last-child { top: 23px; }
+.nav__burger[aria-expanded="true"] span:first-child { transform: translateY(3.5px) rotate(45deg); }
+.nav__burger[aria-expanded="true"] span:last-child { transform: translateY(-3.5px) rotate(-45deg); }
+.toggle { width: 38px; height: 22px; border-radius: 22px; border: 1px solid var(--hair); position: relative; background: #fff; transition: background .25s; }
+.toggle span { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: transform .3s var(--ease), background .25s; }
+.toggle.is-on span { transform: translateX(16px); background: var(--ink); }
+
+/* =========================================================== pills */
+.pill {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 999px; padding: 12px 24px; font-size: 13.5px; font-weight: 400;
+  border: 1px solid var(--ink); background: transparent; color: var(--ink); white-space: nowrap; line-height: 1;
+  transition: background .25s var(--ease), color .25s var(--ease), border-color .25s var(--ease), transform .25s var(--ease), opacity .2s;
+}
+.pill--sm { padding: 9px 17px; font-size: 12.5px; }
+.pill--outline { border-color: #cfcfcf; }
+.pill--outline:hover, .pill--outline.is-active { background: var(--ink); color: #fafafa; border-color: var(--ink); }
+.pill--solid { background: var(--ink); color: #fafafa; }
+.pill--solid:hover { background: #262626; }
+.pill--solid:hover .pill__arrow { transform: translate(2px, -2px); }
+.pill--ghost { border-color: transparent; }
+.pill__arrow { display: inline-block; transition: transform .25s var(--ease); font-size: 1.05em; }
+.pill:disabled { opacity: .4; pointer-events: none; }
+.dark .pill--outline { border-color: rgba(255,255,255,.3); color: #fafafa; }
+.dark .pill--outline:hover { background: #fafafa; color: var(--ink); }
+.dark .pill--solid { background: #fafafa; color: var(--ink); }
+
+/* =========================================================== loader */
+.loader { position: fixed; inset: 0; z-index: 10000; background: var(--navy); color: #fafafa; display: grid; place-items: center; transition: transform .9s var(--ease); }
+.loader.is-lifting { transform: translateY(-100%); }
+.loader__center { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.loader__word { font-size: 11.5px; letter-spacing: .32em; text-transform: uppercase; font-weight: 400; opacity: .85; }
+.loader__pct { position: absolute; right: var(--gutter); bottom: calc(var(--gutter) * .8); font-weight: 300; font-size: clamp(64px, 12vw, 168px); line-height: 1; letter-spacing: -.04em; font-variant-numeric: tabular-nums; }
+html[data-motion="off"] .loader { transition-duration: .2s; }
+
+/* =========================================================== NFT card (dark art tile, mono numerals like the art) */
+.nft-link { display: block; }
+.nft {
+  --c: var(--gold); position: relative; background: var(--card-dark); color: #e9ecf4; border-radius: 26px; padding: 22px 22px 20px; border: 1px solid #1c2230;
+  font-family: var(--mono); overflow: hidden; isolation: isolate; transition: transform .5s var(--ease), box-shadow .5s var(--ease);
+}
+.nft::before { content: ""; position: absolute; inset: 0; border-radius: inherit; padding: 1.5px; background: linear-gradient(135deg, var(--c), transparent 55%, var(--c2, var(--c))); -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; opacity: .95; pointer-events: none; }
+.nft--armed { --c: #e3a72f; --c2: #f08a24; }
+.nft--veteran { --c: #36d6bd; --c2: #3b6df0; }
+.nft--defeated { --c: #e5484d; --c2: #7a2230; }
+.nft-link:hover .nft { transform: translateY(-6px); box-shadow: 0 26px 60px -24px rgba(0,0,0,.45); }
+.nft__head { display: flex; justify-content: space-between; font-size: 10px; letter-spacing: .22em; color: #7e8798; border-bottom: 1px solid #1a2030; padding-bottom: 12px; }
+.nft__head span:last-child { color: var(--c); }
+.nft__art { margin: 6px -10px 0; aspect-ratio: 1; display: grid; place-items: center; }
+.nft__art img { width: 100%; height: 100%; object-fit: contain; }
+.nft__name { text-align: center; font-size: clamp(17px, 1.6vw, 22px); letter-spacing: .1em; text-transform: uppercase; font-weight: 700; margin-top: -6px; }
+.nft__badge { margin: 10px auto 14px; width: max-content; display: flex; align-items: center; gap: 10px; border: 1px solid var(--c); color: var(--c); border-radius: 999px; padding: 6px 18px; font-size: 11px; letter-spacing: .24em; }
+.nft__badge i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); }
+.nft__pot { display: flex; justify-content: space-between; align-items: end; gap: 12px; background: #111621; border: 1px solid #1c2230; border-radius: 14px; padding: 12px 16px; }
+.nft__pot small, .nft__stats dt { font-size: 9.5px; letter-spacing: .2em; color: #7e8798; display: block; }
+.nft__pot strong { font-size: clamp(16px, 1.5vw, 20px); font-weight: 700; }
+.nft__hash { text-align: right; } .nft__hash span { color: #a9b1c2; font-size: 12px; }
+.nft__stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 14px; }
+.nft__stats dd { font-size: 17px; font-weight: 700; margin-top: 2px; }
+.nft__stats .acc { color: var(--c); }
+.nft--lg { padding: 28px; border-radius: 32px; } .nft--lg .nft__name { font-size: 28px; } .nft--lg .nft__pot strong { font-size: 26px; } .nft--lg .nft__stats dd { font-size: 24px; }
+
+/* =========================================================== states */
+.state { border-radius: var(--radius); padding: clamp(28px, 5vw, 64px); text-align: center; background-size: cover; background-position: center; border: 1px solid var(--hair); }
+.state h3 { font-weight: 300; font-size: 28px; margin-bottom: 8px; } .state p { color: var(--ink-2); max-width: 46ch; margin: 0 auto 20px; }
+.state--error { display: flex; gap: 16px; align-items: center; justify-content: space-between; text-align: left; padding: 20px 24px; background: #fff; flex-wrap: wrap; }
+.state--error p { margin: 0; max-width: none; color: var(--ink-2); } .state--error h3 { font-size: 16px; font-weight: 600; margin: 0; }
+.state--error > div { flex: 1 1 260px; }
+
+/* =========================================================== modal + forms */
+.modal { position: fixed; inset: 0; z-index: 200; background: rgba(10,10,10,.5); display: grid; place-items: center; padding: 20px; backdrop-filter: blur(6px); animation: fadein .25s both; }
+.modal__card { width: min(460px, 100%); background: var(--bg); border-radius: 26px; padding: 34px; display: grid; gap: 14px; }
+.modal__card h2 { font-weight: 300; font-size: 40px; line-height: 1.05; letter-spacing: -.02em; }
+.modal__card p { color: var(--ink-2); font-size: 14px; } .modal__card .fine { font-size: 12px; color: var(--muted); }
+.modal__card label { display: grid; gap: 6px; font-size: 12px; color: var(--muted); }
+.modal__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+input, textarea { width: 100%; border: 1px solid var(--hair); background: #fff; border-radius: 14px; padding: 13px 16px; outline: none; transition: border-color .2s, box-shadow .2s; }
+input:focus, textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rgba(0,0,0,.06); }
+.form-error { background: #fdecec; color: #8a1f24; border-radius: 12px; padding: 10px 14px; font-size: 13px; }
+
+/* =========================================================== footer */
+.footer { background-size: cover; background-position: center; color: #fafafa; padding: clamp(56px, 8vw, 110px) var(--gutter) 22px; margin-top: 0; }
+.footer__inner { max-width: var(--max); margin: 0 auto; }
+.footer__cols { display: grid; grid-template-columns: 1fr 1fr 2fr; gap: 40px; }
+.footer h4 { font-weight: 400; font-size: 11.5px; letter-spacing: .08em; color: rgba(250,250,250,.5); margin-bottom: 14px; }
+.footer a { display: block; padding: 4px 0; font-size: 15px; opacity: .88; transition: opacity .2s, transform .2s; } .footer a:hover { opacity: 1; transform: translateX(4px); }
+.footer__note p { font-size: 14px; color: rgba(250,250,250,.78); max-width: 62ch; } .footer__note code { background: rgba(255,255,255,.1); }
+.footer__net { margin-top: 10px; font-size: 12.5px !important; color: rgba(250,250,250,.5) !important; }
+.footer__word { font-weight: 300; font-size: clamp(64px, 17vw, 260px); line-height: .9; letter-spacing: -.045em; margin-top: clamp(40px, 7vw, 100px); }

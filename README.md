@@ -14,6 +14,28 @@ Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation), 3 (NFT r
 
 The model is *allowed* to be talked into releasing (that is the game). It cannot be talked into anything worse.
 
+## The web UI (`/web`)
+
+Vite + React + TypeScript, plain CSS with variables, no animation library. A quiet monochrome light-mode site: scramble-reveal headlines, a sticky-scroll "how it works", a horizontal gallery, a cursor-following list, a loader, and a custom cursor. Colour appears only in the NFT art and tiny status dots. Everything shown is read from the API; nothing is hard-coded.
+
+**One command (Linux / macOS / WSL2, Node 22+, Rust for the first build):**
+
+```bash
+git clone https://github.com/Im-2/vaultbreak && cd vaultbreak
+npm install
+npm run dev        # sandbox + contracts + seeded demo Guardians + API (:8787) + UI (:5173)
+```
+
+Open http://localhost:5173. What `npm run dev` does (`scripts/dev-stack.ts`): starts a throw-away local NEAR sandbox, deploys the registry and pool, **mints six demo Guardians through the real API** (creator signs, server prepares), seeds attack history with real contract calls, then has two scripted players attack through the API (one beats Old Ironside, one pokes the compromised Loose Lips so blocked attempts exist). It then starts the API with the model from `.env` (**Groq or NEAR AI Cloud** if configured, otherwise the scripted offline model) and launches Vite. `npm run dev:api` starts everything except the UI.
+
+**Demo data, honestly labelled:** the pots, attempt counts, streaks and blocked counts at first start are *seeded demo data on a local chain with play money*; the UI says "demo network" wherever it shows them. Anything you do afterwards (attacks, wins, blocks) is real on that chain. The NFT artwork is the supplied art (emblem only; its baked-in demo numbers are not used).
+
+**Zero-wallet play:** click *Sign in*, pick a name and a passphrase. The server opens a custodial play account, funds it with play credits, and pays the entry fee from it when you press *Pay and start*. You never see keys, gas or wallet pop-ups. This sign-in is **demo-grade** (the server holds the key; do not reuse a real password or put real funds in it).
+
+**What is built so far** (UI pages are being delivered in review order): landing (`/`), arena (`/arena`), Guardian page with live SSE chat, blocked-call and win states, and the Prove-it drawer (`/guardian/:id`). Create, My Guardians, Swarms, Agents and Proofs are next; their routes show a placeholder. Screenshots at desktop (1440) and phone (390) widths are in [docs/screens](docs/screens/); regenerate with `node web/scripts/screenshots.mjs` while the stack runs.
+
+API endpoints added for the UI: `GET /config`, `GET /stats`, `POST /custodial/signin`, `GET /me`, `POST /custodial/topup`, `POST /guardians/:id/play` (server pays the fee from the player's custodial account and opens the session), `GET /guardians/:id/prove`.
+
 ## Try it (do X, see Y)
 
 Requirements: Linux, macOS or WSL2 Ubuntu; Node 22+; Rust stable with the `wasm32-unknown-unknown` target. (On Windows, run everything inside WSL: the NEAR sandbox binary and the contract build are Linux/macOS only. `scripts/wsl.sh "<cmd>"` is a helper used during development.)

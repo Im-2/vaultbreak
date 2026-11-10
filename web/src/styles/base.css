@@ -1,0 +1,54 @@
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; scroll-behavior: auto; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink); font: 300 var(--fs-body)/1.6 var(--font);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; overflow-x: hidden;
+}
+html.is-loading, html.is-loading body { overflow: hidden; }
+img { display: block; max-width: 100%; }
+a { color: inherit; text-decoration: none; }
+button, input, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; background: none; border: 0; padding: 0; }
+h1, h2, h3, h4, p, dl, dd, ul, figure { margin: 0; padding: 0; }
+ul { list-style: none; }
+code { font-family: var(--mono); font-size: 0.9em; background: rgba(0,0,0,.05); padding: 1px 6px; border-radius: 6px; }
+::selection { background: var(--ink); color: var(--bg); }
+:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; border-radius: 6px; }
+.dark :focus-visible { outline-color: #fafafa; }
+
+/* custom cursor only with a fine pointer; the native one is hidden only while the dot is active */
+html.has-cursor, html.has-cursor a, html.has-cursor button, html.has-cursor [data-cursor], html.has-cursor input, html.has-cursor textarea { cursor: none; }
+.cursor-dot {
+  position: fixed; left: 0; top: 0; z-index: 9999; width: 10px; height: 10px; border-radius: 50%; background: var(--ink);
+  pointer-events: none; opacity: 0; transition: opacity .25s, background .2s, width .2s, height .2s; will-change: transform;
+}
+.cursor-dot.is-light { background: #fafafa; }
+@media (hover: none), (pointer: coarse) { .cursor-dot { display: none; } }
+
+.label { display: block; font-size: 11.5px; font-weight: 400; letter-spacing: .06em; color: var(--muted); margin-bottom: 14px; }
+.muted { color: var(--muted); }
+.display { font-weight: 300; font-size: var(--fs-display); line-height: 1.02; letter-spacing: -0.025em; }
+.display--md { font-size: var(--fs-display-md); }
+.count { font-size: .26em; vertical-align: top; color: var(--muted); font-weight: 400; margin-left: .3em; letter-spacing: 0; }
+
+/* ------- scramble text: the final text holds the layout; the live layer is painted on top */
+.scramble { position: relative; display: inline-block; }
+h1.scramble, h2.scramble, div.scramble { display: block; }
+.scramble__final { visibility: hidden; }
+.scramble.is-done .scramble__final { visibility: visible; }
+.scramble__live { position: absolute; inset: 0; white-space: pre-wrap; pointer-events: none; }
+.sc-mix { filter: blur(5px); opacity: .45; display: inline-block; transform: translateY(2px); }
+.sc-ok { filter: blur(0); opacity: 1; transition: filter .25s, opacity .25s; }
+.scramble.is-reduced .scramble__final, html[data-motion="off"] .scramble__final { visibility: visible; animation: fadein .5s both; }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+
+/* ------- skeletons */
+.skeleton { display: inline-block; background: linear-gradient(100deg, #ececec 30%, #f6f6f6 50%, #ececec 70%); background-size: 220% 100%; animation: shimmer 1.4s linear infinite; vertical-align: middle; }
+@keyframes shimmer { from { background-position: 120% 0; } to { background-position: -120% 0; } }
+html[data-motion="off"] .skeleton { animation: none; }
+
+.dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--muted); margin-right: 2px; flex: none; }
+.dot--gold { background: var(--gold); box-shadow: 0 0 0 3px rgba(227,167,47,.18); }
+.dot--red { background: var(--red); box-shadow: 0 0 0 3px rgba(229,72,77,.16); }
+.dot--grey { background: var(--muted); }

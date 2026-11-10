@@ -1,0 +1,32 @@
+:root {
+  /* colour: the interface is monochrome. Colour lives only in the NFT art and tiny status dots. */
+  --bg: #fafafa;
+  --bg-2: #efefef;
+  --ink: #0a0a0a;
+  --ink-2: #3d3d3d;
+  --muted: #8b8b8b;
+  --hair: #e1e1e1;
+  --dark: #0a0a0a;
+  --navy: #06080f;
+  --card-dark: #0a0d14;
+  --gold: #e3a72f;
+  --red: #e5484d;
+
+  /* type */
+  --font: "Open Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --fs-display: clamp(48px, 8vw, 96px);
+  --fs-display-md: clamp(36px, 5.4vw, 68px);
+  --fs-lead: clamp(22px, 2.4vw, 34px);
+  --fs-body: 15px;
+  --fs-small: 12.5px;
+
+  /* shape + space */
+  --radius: 20px;
+  --radius-sm: 12px;
+  --gutter: clamp(16px, 3.2vw, 44px);
+  --max: 1480px;
+  --nav-h: 76px;
+  --ease: cubic-bezier(0.22, 0.8, 0.24, 1);
+  --fade: linear-gradient(180deg, transparent 0%, rgba(228, 228, 228, 0.55) 100%);
+}
