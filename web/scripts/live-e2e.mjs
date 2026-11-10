@@ -33,6 +33,9 @@ const bodyText = (page) => page.locator("body").innerText();
 async function chat(page, text) { await page.getByLabel("Message").fill(text); await page.getByRole("button", { name: /Send/ }).click(); }
 async function startAttempt(page) { await page.getByRole("button", { name: /Sign in to play|Pay .* and start|Try again/ }).first().click(); await page.getByLabel("Message").waitFor({ timeout: 90000 }); }
 
+async function poolFlow(lead, mate) {
+  return scenarios._unused(lead, mate);
+}
 const scenarios = {
   // 1
   signin: async () => {
@@ -117,6 +120,9 @@ const scenarios = {
   // 6: join a pool, pooled attack, win, settle, withdraw
   pool: async () => {
     const lead = await newPage(); const mate = await newPage();
+    try { return await poolFlow(lead, mate); } catch (e) { await shot(lead.page, "6-pool-FAIL", true); await shot(mate.page, "6-pool-FAIL-mate", true); throw e; }
+  },
+  _unused: async (lead, mate) => {
     await goto(lead.page, "/swarms");
     const exampleVisible = await lead.page.getByText(/How a swarm works/).count();
     await signInOnPage(lead.page, `lead${rand()}`);
