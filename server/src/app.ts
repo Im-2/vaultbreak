@@ -591,6 +591,9 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     }
     const fee = BigInt(live.params.min_fee);
     if ((await creditsOf(acct)) < fee + NEAR / 20n) return c.json({ error: "not enough credits for the entry fee", fee: fee.toString() }, 402);
+    // An agent API key plays through this endpoint too (the server signs for the account the key belongs to): refuse BEFORE paying when the key's budget cannot cover the fee.
+    const kr = keyRow(c);
+    if (kr && BigInt(kr.budget_remaining) < fee) return c.json({ error: "agent budget exhausted", budget_remaining: kr.budget_remaining, fee: fee.toString() }, 402);
     const key = JSON.parse(readFileSync(`${cfg.keysDir}/${cu.key_ref}.json`, "utf8"));
     let onchainId: string;
     try {
@@ -600,6 +603,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       return c.json({ error: /too many open/.test(msg) ? "you already have an open attempt on this guardian" : /defeated/.test(msg) ? "this guardian has been defeated" : `could not start the attempt: ${msg.slice(0, 120)}` }, 409);
     }
     const s: any = await viewSession(g.vault_account, onchainId);
+    if (kr) chargeBudget(c, fee.toString()); // the fee is paid: charge the key's budget
     const id = randomUUID();
     db.prepare("INSERT INTO sessions(id, guardian_id, onchain_session_id, attacker, status, started_at, controller) VALUES (?,?,?,?, 'open', ?, ?)").run(id, g.id, Number(onchainId), acct, now(), acct);
     return c.json({ session_id: id, onchain_session_id: Number(onchainId), resumed: false, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });
