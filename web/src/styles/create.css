@@ -22,3 +22,20 @@
 .create__card { position: relative; max-width: 420px; }
 .create__card::after { content: "PREVIEW"; position: absolute; top: 14px; right: 18px; font: 600 10px var(--mono); letter-spacing: .22em; color: #7e8798; pointer-events: none; }
 @media (max-width: 960px) { .create { grid-template-columns: 1fr; } .create__preview { position: static; order: -1; } .create__grid { grid-template-columns: repeat(2, 1fr); } .create__cost { grid-template-columns: 1fr; } .create__card { margin: 0 auto; } }
+
+/* read-only examples shown to signed-out visitors (Create, Swarms, Agents) */
+.example { margin: 8px 0 clamp(28px, 4vw, 56px); display: grid; gap: 14px; }
+.example__grid { display: grid; grid-template-columns: minmax(0, 360px) minmax(0, 1fr); gap: clamp(20px, 4vw, 56px); align-items: start; }
+.example__grid--pools { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.example__text { display: grid; gap: 14px; align-content: start; min-width: 0; }
+.example__text p { margin: 0; }
+.steps { margin: 0; padding: 0; list-style: none; display: grid; gap: 10px; font-size: 14px; line-height: 1.55; }
+.steps b { font-weight: 600; }
+.facts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px 18px; margin: 0; }
+.facts div { display: grid; gap: 2px; min-width: 0; }
+.facts dt { font-size: 12px; color: var(--muted); }
+.facts dd { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+.onchain { margin: 10px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.example .plist__item { cursor: default; }
+.example .code { margin: 0; max-height: 360px; overflow: auto; }
+@media (max-width: 860px) { .example__grid, .example__grid--pools { grid-template-columns: 1fr; } .example__card { max-width: 360px; } }

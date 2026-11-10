@@ -5,7 +5,7 @@ import { NFTCard } from "../components/NFTCard";
 import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
-import { TxLink } from "../components/TxLink";
+import { AcctLink, TxLink } from "../components/TxLink";
 import { api, type Guardian } from "../lib/api";
 import { near, timeAgo } from "../lib/format";
 import { useAuth, useConfig, useFetch } from "../lib/hooks";
@@ -45,6 +45,7 @@ function Dashboard() {
               {owned.data!.map((g) => (
                 <div key={g.id} className="owned">
                   <NFTCard g={g} to={`/guardian/${g.id}`} />
+                  {cfg?.explorer && <p className="onchain muted">{g.nft ? <>NFT <AcctLink id={g.nft.registry} cfg={cfg} nft={g.nft.token_id} label={`#${g.nft.token_id}`} /> · </> : null}vault <AcctLink id={g.vault_account} cfg={cfg} /></p>}
                   <div className="owned__bar">
                     <div><small>Creator fees</small><strong>{near(g.creator_balance, 3)} NEAR</strong></div>
                     <Pill small variant="solid" disabled={busy === g.id || BigInt(g.creator_balance) === 0n} onClick={() => claim(g)}>{busy === g.id ? "Claiming…" : "Claim"}</Pill>

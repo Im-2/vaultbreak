@@ -4,7 +4,7 @@ import { ScrambleText } from "../components/ScrambleText";
 import { Pill } from "../components/Pill";
 import { ErrorState, EmptyState, Skeleton, StatusDot } from "../components/States";
 import type { Guardian, Stats } from "../lib/api";
-import { near, plural } from "../lib/format";
+import { near, netNote, plural } from "../lib/format";
 import { useConfig, useFetch, useIsMobile, useMotion, useScrollProgress } from "../lib/hooks";
 
 /* ============================================================ hero */
@@ -30,7 +30,7 @@ function Hero() {
       <div className="hero__top">
         <ScrambleText as="h1" className="display hero__title" on="mount" text="Can you talk it out of the money?" duration={1500} />
         <aside className="hero__meta" aria-label="Live totals">
-          <small className="label">Live{cfg.data?.demo ? " · demo network" : cfg.data ? ` · ${cfg.data.network}` : ""}</small>
+          <small className="label">Live{cfg.data ? ` · ${netNote(cfg.data)}` : ""}</small>
           {stats.error && !s ? <p className="hero__err">API unreachable</p> : (
             <dl>
               <div><dt>Pot in play</dt><dd>{s ? <>{near(s.total_pot, 0)}<span> NEAR</span></> : <Skeleton w={110} h={34} />}</dd></div>

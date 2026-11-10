@@ -5,7 +5,7 @@ import { NFTCard } from "../components/NFTCard";
 import { Pill } from "../components/Pill";
 import { EmptyState, ErrorState, Skeleton, StatusDot } from "../components/States";
 import type { Guardian, Leaderboard, Stats } from "../lib/api";
-import { near, shortHash } from "../lib/format";
+import { near, netNote, shortHash } from "../lib/format";
 import { useConfig, useFetch } from "../lib/hooks";
 
 type StatusFilter = "all" | "armed" | "defeated";
@@ -82,7 +82,7 @@ export default function Arena() {
     <main className="page arena">
       <header className="arena__head">
         <div>
-          <small className="label">Arena{cfg.data?.demo ? " · demo network, play money" : cfg.data ? ` · ${cfg.data.network}` : ""}</small>
+          <small className="label">Arena{cfg.data ? ` · ${netNote(cfg.data)}` : ""}</small>
           <ScrambleText as="h1" className="display display--md" on="mount" text="Pick a Guardian." />
         </div>
         <Pill to="/create" variant="solid" arrow>Create a Guardian</Pill>

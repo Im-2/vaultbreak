@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Copy, TxLink } from "./TxLink";
+import { AcctLink, Copy, TxLink } from "./TxLink";
 import { ErrorState, Skeleton } from "./States";
 import type { AppConfig, Proof } from "../lib/api";
 import { shortHash, timeAgo } from "../lib/format";
@@ -38,7 +38,7 @@ export function ProveDrawer({ id, cfg, open, onClose }: { id: string; cfg: AppCo
 
             <section>
               <h3>Blocked attempts</h3>
-              <p><b>{p.stats.blocked_reported.toLocaleString("en-US")}</b> reported on-chain across {p.stats.attempts.toLocaleString("en-US")} attempts. When a model tries a forbidden call, the chain refuses it and the attempt is logged:</p>
+              <p><b>{p.stats.blocked_reported.toLocaleString("en-US")}</b> reported on-chain across {p.stats.attempts.toLocaleString("en-US")} attempts. When a model tries a forbidden call, the chain refuses it and the attempt is logged here. A refused call is rejected before it is included in a block, so it has no transaction hash; the attempt’s close transaction (below) records the blocked count on-chain.</p>
               {p.blocked.length === 0 ? <p className="muted">No refused calls logged by this server yet.</p> : (
                 <ul className="blocked-list">{p.blocked.map((b, i) => (
                   <li key={i}><b>{b.tool}</b><code>{(() => { try { return JSON.stringify(JSON.parse(b.args)); } catch { return b.args; } })()}</code><span>{b.chain_error}</span><small>{timeAgo(b.created_at)}</small></li>))}
@@ -49,7 +49,7 @@ export function ProveDrawer({ id, cfg, open, onClose }: { id: string; cfg: AppCo
             <section>
               <h3>Attempts and transactions</h3>
               {p.sessions.length === 0 ? <p className="muted">No attempts played through this server yet.</p> : (
-                <table className="proof-table"><thead><tr><th>Attempt</th><th>Result</th><th>Turns</th><th>Transaction</th></tr></thead><tbody>
+                <table className="proof-table"><thead><tr><th>Attempt</th><th>Result</th><th>Turns</th><th>Release / close tx</th></tr></thead><tbody>
                   {p.sessions.map((s) => <tr key={s.id}><td>{timeAgo(s.started_at)}</td><td>{s.status === "won" ? "Pot released" : s.status === "failed" ? "Held" : s.status}</td><td>{s.turns}</td><td><TxLink tx={s.tx_release ?? s.tx_close} cfg={cfg} /></td></tr>)}
                 </tbody></table>
               )}
@@ -62,7 +62,7 @@ export function ProveDrawer({ id, cfg, open, onClose }: { id: string; cfg: AppCo
                 : p.attestation.reason}</p>
               <p className="muted">Model: {p.guardian.provider === "mock" ? "scripted demo model" : p.guardian.model}. The operator runs the model and builds each request, so a dishonest operator could in principle instruct it to release. The vault still cannot be made to pay anyone except the player of that attempt.</p>
             </section>
-            <footer className="drawer__foot muted">Vault account <code>{p.guardian.vault_account}</code> · vault status {p.vault.status.toLowerCase()}</footer>
+            <footer className="drawer__foot muted">Vault account <AcctLink id={p.guardian.vault_account} cfg={cfg} /> · vault status {p.vault.status.toLowerCase()}</footer>
           </div>
         )}
       </aside>

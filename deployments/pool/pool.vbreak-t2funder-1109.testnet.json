@@ -1,0 +1,6 @@
+{
+  "pool": "pool.vbreak-t2funder-1109.testnet",
+  "registry": "registry.vbreak-t2funder-1109.testnet",
+  "locked": true,
+  "rpc": "https://test.rpc.fastnear.com,https://near-testnet.drpc.org"
+}

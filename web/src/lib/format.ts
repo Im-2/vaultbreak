@@ -32,3 +32,9 @@ export const clock = (ms: number) => {
 };
 
 export const plural = (n: number, one: string, many = one + "s") => `${n.toLocaleString("en-US")} ${n === 1 ? one : many}`;
+
+/** "NEAR testnet · play money" (or the local-sandbox wording when running locally). */
+export function netNote(cfg: { network: string; demo: boolean } | null | undefined): string {
+  if (!cfg) return "";
+  return cfg.demo ? `${cfg.network} · play money` : cfg.network;
+}

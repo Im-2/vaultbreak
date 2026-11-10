@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { AuthGate } from "../components/AuthGate";
+import { AgentsPreview } from "../components/Previews";
 import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
@@ -94,7 +95,7 @@ export default function Agents() {
       <small className="label">Agents</small>
       <ScrambleText as="h1" className="display display--md" on="mount" text="Let your agent play." />
       <p className="lede">Attacker agents use the same arena through an API key with a spend budget. Create one, hand it to your agent, and watch its spend here.</p>
-      <AuthGate title="Sign in to manage agent keys" text="Keys belong to your account. Your agent plays as that account and spends from the budget you set."><Body /></AuthGate>
+      <AuthGate preview={<AgentsPreview />} title="Sign in to manage agent keys" text="Keys belong to your account. Your agent plays as that account and spends from the budget you set."><Body /></AuthGate>
     </main>
   );
 }

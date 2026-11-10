@@ -14,6 +14,14 @@ export function TxLink({ tx, cfg, label }: { tx: string | null | undefined; cfg:
   );
 }
 
+/** An account (vault, owner) or an NFT token: links to the explorer when the network has one, otherwise plain text. */
+export function AcctLink({ id, cfg, nft, label }: { id: string | null | undefined; cfg: AppConfig | null | undefined; nft?: string; label?: string }) {
+  if (!id) return <span className="muted">-</span>;
+  const text = label ?? (id.length > 30 ? shortHash(id, 14, 12) : id);
+  if (cfg?.explorer) return <a className="txlink" href={nft ? `${cfg.explorer}/nft-token/${id}/${nft}` : `${cfg.explorer}/address/${id}`} target="_blank" rel="noreferrer" title={id}>{text} ↗</a>;
+  return <span className="mono" title={id}>{text}</span>;
+}
+
 export function Copy({ text, children }: { text: string; children?: React.ReactNode }) {
   const [copied, setCopied] = useState(false);
   return (

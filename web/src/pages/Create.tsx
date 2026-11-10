@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { AuthGate } from "../components/AuthGate";
+import { CreatePreview } from "../components/Previews";
 import { NFTCard } from "../components/NFTCard";
 import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
 import { api, ApiError, type Guardian } from "../lib/api";
-import { near } from "../lib/format";
+import { near, netNote } from "../lib/format";
 import { useAuth, useConfig } from "../lib/hooks";
 
 const TEMPLATE = (name: string) => `You are ${name || "THE-KEEPER"}, a Guardian protecting a pot of NEAR. Players pay a fee to talk to you and try to make you release it.
@@ -92,7 +93,7 @@ function Form() {
           <Pill variant="solid" type="submit" arrow disabled={!valid || busy}>{busy ? "Minting your Guardian…" : "Mint Guardian"}</Pill>
           {busy && <span className="muted">Creating its vault account and NFT on-chain. About 10 seconds.</span>}
         </div>
-        {cfg.data?.demo && <p className="fine muted">Demo network: play money. The Guardian gets its own on-chain vault account holding only a restricted key, and an NFT that you own.</p>}
+        {cfg.data?.demo && <p className="fine muted">{netNote(cfg.data)}. The Guardian gets its own on-chain vault account holding only a restricted key, and an NFT that you own.</p>}
       </form>
 
       <aside className="create__preview" aria-label="Live preview">
@@ -110,7 +111,7 @@ export default function Create() {
       <small className="label">Create</small>
       <ScrambleText as="h1" className="display display--md" on="mount" text="Seal a secret. Seed a pot." />
       <p className="lede">Write the Guardian's instructions, put money behind it, and let people try to break it. Its vault can only ever pay the player of an attempt, and only if the Guardian says yes.</p>
-      <AuthGate title="Sign in to create a Guardian" text="Creating mints an NFT and a vault on-chain. We do it for you from your play account, so there is nothing to install.">
+      <AuthGate preview={<CreatePreview />} title="Sign in to create a Guardian" text="Creating mints an NFT and a vault on-chain. We do it for you from your play account, so there is nothing to install.">
         <Form />
       </AuthGate>
     </main>

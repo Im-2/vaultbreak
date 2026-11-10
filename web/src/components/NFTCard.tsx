@@ -12,7 +12,7 @@ export function NFTCard({ g, size = "sm", to }: { g: Guardian; size?: "sm" | "lg
       <header className="nft__head"><span>VAULTBREAK</span><span>GUARDIAN · {g.id.toUpperCase().slice(0, 14)}</span></header>
       <div className="nft__art"><img src={`/assets/emblem-${g.art}.webp`} alt={`${g.name} vault emblem`} loading="lazy" draggable={false} /></div>
       <h3 className="nft__name">{g.name}</h3>
-      <div className={`nft__badge nft__badge--${g.status.toLowerCase()}`}><i />{g.status.toUpperCase()}</div>
+      <div className={`nft__badge nft__badge--${g.status.toLowerCase()}`}><i />{g.art === "veteran" && g.status === "Armed" ? "ARMED · VETERAN" : g.status.toUpperCase()}</div>
       <div className="nft__pot">
         <div><small>POT</small><strong>{near(g.pot)} NEAR</strong></div>
         <div className="nft__hash"><small>SEALED PROMPT</small><span>{shortHash(g.prompt_hash)}</span></div>

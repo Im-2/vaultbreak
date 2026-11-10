@@ -11,3 +11,4 @@ web/node_modules/
 web/dist/
 ui/nfts/lineup.png
 .serve/
+.testnet-data/

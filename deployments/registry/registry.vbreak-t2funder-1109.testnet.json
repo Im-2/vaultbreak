@@ -1,0 +1,16 @@
+{
+  "registry": "registry.vbreak-t2funder-1109.testnet",
+  "admin": "vbreak-t2funder-1109.testnet",
+  "base_uri": "https://tryvaultbreak.vercel.app/api",
+  "locked": true,
+  "rpc": "https://test.rpc.fastnear.com,https://near-testnet.drpc.org",
+  "nft_metadata": {
+    "spec": "nft-1.0.0",
+    "name": "Vaultbreak Guardians",
+    "symbol": "VBG",
+    "icon": null,
+    "base_uri": "https://tryvaultbreak.vercel.app/api",
+    "reference": null,
+    "reference_hash": null
+  }
+}

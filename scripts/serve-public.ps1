@@ -1,6 +1,6 @@
 # One command to (re)publish the backend from this machine:
 #   powershell -ExecutionPolicy Bypass -File scripts/serve-public.ps1
-# 1. stops any old stack/tunnel, 2. starts the stack in WSL (sandbox + contracts + seeded Guardians + API on :8787) as a
+# 1. stops any old stack/tunnel, 2. starts the stack in WSL (NEAR testnet backend: API on :8787, state kept in .testnet-data/) as a
 # hidden background process, 3. opens a free Cloudflare quick tunnel (no account), 4. writes the tunnel URL into the
 # rewrite in web/vercel.json and redeploys the site. The Vercel domain is the stable public address; only the tunnel
 # behind it changes on every restart. Secrets (model key) are read by the backend from the gitignored .env, never by the website.
@@ -15,11 +15,11 @@ Get-Process cloudflared -ErrorAction SilentlyContinue | Stop-Process -Force
 function WslIp { (wsl -d Ubuntu -- hostname -I).Trim().Split(" ")[0] }
 if ($Reuse) { Write-Host "[serve] reusing the running backend" } else {
 Write-Host "[serve] stopping old processes"
-wsl -d Ubuntu -- bash -lc "ss -ltnp 2>/dev/null | grep ':8787' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs -r kill -9; pkill -f '[n]ear-sandbox'; true" | Out-Null
+wsl -d Ubuntu -- bash -lc "ss -ltnp 2>/dev/null | grep -E ':878[78]' | grep -o 'pid=[0-9]*' | cut -d= -f2 | xargs -r kill -9; pkill -f '[n]ear-sandbox'; true" | Out-Null
 
-Write-Host "[serve] starting the stack in WSL (full seed takes a few minutes)"
+Write-Host "[serve] starting the stack in WSL (state is kept, so a restart does not reseed)"
 $lin = (wsl -d Ubuntu -- wslpath -a $repo.Replace('\', '/')).Trim()
-$cmd = ". ~/.cargo/env 2>/dev/null; export CARGO_TARGET_DIR=`$HOME/.vb-target; cd '$lin' && PUBLIC_BASE_URL='$PublicBase' bash scripts/dev.sh --no-web > /tmp/vb-api.log 2>&1"
+$cmd = ". ~/.cargo/env 2>/dev/null; export CARGO_TARGET_DIR=`$HOME/.vb-target; cd '$lin' && PUBLIC_BASE_URL='$PublicBase' bash scripts/testnet.sh > /tmp/vb-api.log 2>&1"
 Start-Process wsl.exe -WindowStyle Hidden -ArgumentList @("-d", "Ubuntu", "--", "bash", "-lc", "`"$cmd`"")
 }
 

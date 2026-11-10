@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { AuthGate } from "../components/AuthGate";
+import { SwarmsPreview } from "../components/Previews";
 import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
@@ -154,7 +155,7 @@ export default function Swarms() {
       <small className="label">Swarms</small>
       <ScrambleText as="h1" className="display display--md" on="mount" text="Break it together." />
       <p className="lede">Pool NEAR with other players, let one controller attack with the shared money, and split any pot pro rata. The pool is a contract: nobody can take more than their share. <Link to="/agents" className="linkish">Agents</Link> can run pools through the API.</p>
-      <AuthGate title="Sign in to join a swarm" text="Your play account contributes to pools and receives its share of any winnings."><Body /></AuthGate>
+      <AuthGate preview={<SwarmsPreview />} title="Sign in to join a swarm" text="Your play account contributes to pools and receives its share of any winnings."><Body /></AuthGate>
     </main>
   );
 }

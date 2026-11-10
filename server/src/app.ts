@@ -17,11 +17,17 @@ import { formatResults, verifySession } from "./privacy/verify.ts";
 import type { Llm } from "./llm.ts";
 import { fetchAttestation, newNonce, verifyAttestation, type QuoteVerifier } from "./privacy/attestation.ts";
 
+/** One rule for the artwork everywhere (API, NFT metadata, UI): defeated beats everything, a streak of 10 or more is a veteran, otherwise armed. */
+export const VETERAN_STREAK = 10;
 const AUTH_RECIPIENT = "vaultbreak";
 const AUTH_MESSAGE = "Log in to Vaultbreak";
 
 /** Operator account that creates + funds custodial player accounts (zero-wallet play). */
-export interface CustodialCfg { funderId: string; funderSecret: string; fundNear: number }
+export interface CustodialCfg {
+  funderId: string; funderSecret: string; fundNear: number;
+  /** Public testnet: NEAR is scarce, so top-ups are small, capped per player, and signups stop when the funder runs low. */
+  topupNear?: number; topupBelowNear?: number; maxTopups?: number; reserveNear?: number;
+}
 export interface UiInfo { network?: string; explorer?: string; demo?: boolean }
 
 export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: AppDeps & { custodial?: CustodialCfg; ui?: UiInfo }) {
@@ -70,6 +76,11 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       return llm.complete(req);
     },
   };
+  // A view right after a transaction can hit an RPC node that is a block behind and return null: wait briefly for the session to appear.
+  const viewSession = async (vault: string, sessionId: string): Promise<any> => {
+    for (let i = 0; i < 8; i++) { const r: any = await view(p, vault, "get_session", { session_id: sessionId }); if (r) return r; await new Promise((res) => setTimeout(res, 1500)); }
+    return view(p, vault, "get_session", { session_id: sessionId });
+  };
   const runtime = new GuardianRuntime(db, cfg, cappedLlm, pkey);
   const p = provider(cfg.rpcUrl);
   const getG = (id: string) => db.prepare("SELECT * FROM guardians WHERE id=?").get(id) as any as GuardianRow & Record<string, any> | undefined;
@@ -113,7 +124,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const { state, stats, params } = await liveOrCached(g);
     return {
       id: g.id, name: g.name, vault_account: g.vault_account, owner: state.owner, status: state.status, created_at: g.created_at,
-      art: state.status === "Defeated" ? "defeated" : stats.streak >= 5 ? "veteran" : "armed",
+      art: state.status === "Defeated" ? "defeated" : stats.streak >= VETERAN_STREAK ? "veteran" : "armed",
       pot: state.pot, min_fee: params.min_fee, turns_max: params.turns_max, session_ttl_ms: params.session_ttl_ms,
       stats, prompt_hash: g.prompt_hash, revealed: !!g.revealed, model: g.model, danger_mode: !!g.danger_mode,
       ...(g.registry ? { nft: { registry: g.registry, token_id: g.id, owner: state.owner } } : {}),
@@ -165,9 +176,9 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     return c.json({
       title: `Guardian ${pg.name}`,
       image: `${cfg.publicBaseUrl}/assets/emblem-${pg.art}.webp`, external_url: `${cfg.publicBaseUrl}/guardian/${pg.id}`,
-      description: `A Vaultbreak AI guardian. Status ${pg.status}, pot ${potNear} NEAR, ${pg.stats.attempts} attempts, ${pg.stats.wins} wins, streak ${pg.stats.streak}.`,
+      description: `A Vaultbreak AI guardian. Status ${pg.status}${pg.art === "veteran" ? " (veteran: " + VETERAN_STREAK + "+ attempts survived in a row)" : ""}, pot ${potNear} NEAR, ${pg.stats.attempts} attempts, ${pg.stats.wins} wins, streak ${pg.stats.streak}.`,
       attributes: [
-        { trait_type: "status", value: pg.status }, { trait_type: "pot_near", value: potNear },
+        { trait_type: "status", value: pg.status }, { trait_type: "tier", value: pg.art }, { trait_type: "pot_near", value: potNear },
         { trait_type: "attempts", value: pg.stats.attempts }, { trait_type: "wins", value: pg.stats.wins },
         { trait_type: "survival_streak", value: pg.stats.streak }, { trait_type: "blocked_reported", value: pg.stats.blocked_reported },
       ],
@@ -252,7 +263,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const acct = account(c); if (!acct) return c.json({ error: "login required" }, 401);
     const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
     const { onchain_session_id } = await c.req.json();
-    const s: any = await view(p, g.vault_account, "get_session", { session_id: String(onchain_session_id) });
+    const s: any = await viewSession(g.vault_account, String(onchain_session_id));
     if (!s) return c.json({ error: "no such on-chain session" }, 404);
     if (s.attacker !== acct) return c.json({ error: "on-chain attacker is not you" }, 403);
     if (s.status !== "Open") return c.json({ error: `on-chain session is ${s.status}` }, 409);
@@ -448,7 +459,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const { onchain_session_id } = await c.req.json();
     if (pv.open_session !== String(onchain_session_id)) return c.json({ error: "that is not the pool's open session" }, 409);
     const g = getG(pv.guardian_id); if (!g || g.pending) return c.json({ error: "unknown guardian" }, 404);
-    const s: any = await view(p, g.vault_account, "get_session", { session_id: String(onchain_session_id) });
+    const s: any = await viewSession(g.vault_account, String(onchain_session_id));
     if (!s || s.attacker !== cfg.pool || s.status !== "Open") return c.json({ error: "vault session is not an open pool session" }, 409);
     const existing = db.prepare("SELECT id FROM sessions WHERE guardian_id=? AND onchain_session_id=?").get(g.id, onchain_session_id) as any;
     if (existing) return c.json({ session_id: existing.id, turns_max: g.turns_max });
@@ -514,6 +525,10 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     }
     const ipNow = (c.get("ip" as any) as string | null);
     if (ipNow && !cfg.limits.disabled && !allow(`newacct:${ipNow}`, cfg.limits.accountsPerIpPerHour, 3_600_000)) return c.json({ error: "too many new play accounts from your network this hour" }, 429);
+    if (custodial.reserveNear !== undefined) {
+      const fb = await creditsOf(custodial.funderId).catch(() => null);
+      if (fb !== null && fb < BigInt(Math.round((custodial.fundNear + custodial.reserveNear) * 1e6)) * 10n ** 18n) return c.json({ error: "The demo's play-money faucet is empty right now, so new play accounts are paused. Existing players can keep playing." }, 503);
+    }
     const slug = nameKey.replace(/[^a-z0-9]/g, "").slice(0, 12) || "player";
     const accountId = `${slug}${randomBytes(3).toString("hex")}.${custodial.funderId}`;
     const kp = KeyPair.fromRandom("ed25519");
@@ -544,8 +559,19 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const acct = account(c); const cu = custodialRow(acct);
     if (!custodial || !funder || !cu) return c.json({ error: "custodial players only" }, 403);
     const have = await creditsOf(cu.account_id);
-    if (have > BigInt(Math.round(custodial.fundNear)) * NEAR) return c.json({ error: "you already have plenty of credits" }, 409);
-    await queueFund(() => retryTransport(() => funder.transfer({ receiverId: cu.account_id, amount: BigInt(Math.round(custodial.fundNear * 1e6)) * 10n ** 18n })));
+    const below = custodial.topupBelowNear ?? custodial.fundNear;
+    if (have > BigInt(Math.round(below * 1e6)) * 10n ** 18n) return c.json({ error: "you already have plenty of credits" }, 409);
+    const topupNear = custodial.topupNear ?? custodial.fundNear;
+    if (custodial.maxTopups !== undefined) {
+      const used = ((db.prepare("SELECT n FROM custodial_topups WHERE account_id=?").get(cu.account_id) as any)?.n ?? 0) as number;
+      if (used >= custodial.maxTopups) return c.json({ error: "you have used all your play-credit top-ups on this demo" }, 429);
+    }
+    if (custodial.reserveNear !== undefined) {
+      const fb = await creditsOf(custodial.funderId).catch(() => null);
+      if (fb !== null && fb < BigInt(Math.round((topupNear + custodial.reserveNear) * 1e6)) * 10n ** 18n) return c.json({ error: "The demo's play-money faucet is empty right now." }, 503);
+    }
+    await queueFund(() => retryTransport(() => funder.transfer({ receiverId: cu.account_id, amount: BigInt(Math.round(topupNear * 1e6)) * 10n ** 18n })));
+    db.prepare("INSERT INTO custodial_topups(account_id, n) VALUES (?, 1) ON CONFLICT(account_id) DO UPDATE SET n = n + 1").run(cu.account_id);
     return c.json({ credits: (await creditsOf(cu.account_id)).toString() });
   });
 
@@ -559,7 +585,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     // resume an attempt that is still open instead of paying twice
     const open = db.prepare("SELECT id, onchain_session_id FROM sessions WHERE guardian_id=? AND controller=? AND status='open' ORDER BY started_at DESC LIMIT 1").get(g.id, acct) as any;
     if (open) {
-      const s: any = await view(p, g.vault_account, "get_session", { session_id: String(open.onchain_session_id) });
+      const s: any = await viewSession(g.vault_account, String(open.onchain_session_id));
       if (s?.status === "Open") return c.json({ session_id: open.id, onchain_session_id: open.onchain_session_id, resumed: true, via_pool: s.attacker !== acct, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });
       db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(s?.status ?? "failed").toLowerCase(), open.id);
     }
@@ -573,7 +599,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       const msg = String(e?.message ?? e);
       return c.json({ error: /too many open/.test(msg) ? "you already have an open attempt on this guardian" : /defeated/.test(msg) ? "this guardian has been defeated" : `could not start the attempt: ${msg.slice(0, 120)}` }, 409);
     }
-    const s: any = await view(p, g.vault_account, "get_session", { session_id: onchainId });
+    const s: any = await viewSession(g.vault_account, onchainId);
     const id = randomUUID();
     db.prepare("INSERT INTO sessions(id, guardian_id, onchain_session_id, attacker, status, started_at, controller) VALUES (?,?,?,?, 'open', ?, ?)").run(id, g.id, Number(onchainId), acct, now(), acct);
     return c.json({ session_id: id, onchain_session_id: Number(onchainId), resumed: false, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });

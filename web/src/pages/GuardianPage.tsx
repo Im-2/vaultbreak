@@ -5,9 +5,9 @@ import { Pill } from "../components/Pill";
 import { ProveDrawer } from "../components/ProveDrawer";
 import { ErrorState, Skeleton } from "../components/States";
 import { ScrambleText } from "../components/ScrambleText";
-import { TxLink } from "../components/TxLink";
+import { AcctLink, TxLink } from "../components/TxLink";
 import { api, ApiError, sendMessage, type ChatEvent, type Guardian } from "../lib/api";
-import { clock, near } from "../lib/format";
+import { clock, near, netNote } from "../lib/format";
 import { useAuth, useConfig, useFetch, useNow } from "../lib/hooks";
 
 type Msg =
@@ -154,6 +154,12 @@ export default function GuardianPage() {
           <div><small>Time left</small><strong className={session && remainingMs < 60_000 && phase !== "idle" ? "warn" : ""}>{session && (phase === "live" || phase === "sending") ? clock(remainingMs) : clock(Number(g.session_ttl_ms))}</strong></div>
         </div>
 
+        {cfg?.explorer && (
+          <p className="onchain muted" aria-label="On-chain references">
+            On-chain: {g.nft ? <>NFT <AcctLink id={g.nft.registry} cfg={cfg} nft={g.nft.token_id} label={`#${g.nft.token_id}`} /> · </> : null}vault <AcctLink id={g.vault_account} cfg={cfg} /> · owner <AcctLink id={g.owner} cfg={cfg} />
+          </p>
+        )}
+
         <div className="chat">
           <div className="chat__log" ref={scroller} aria-live="polite">
             {msgs.length === 0 && (
@@ -196,7 +202,7 @@ export default function GuardianPage() {
         </div>
 
         {cfg && <p className="gnote muted">
-          {cfg.demo ? "Demo network with play money. " : ""}Model: {cfg.provider === "mock" ? "scripted demo model" : `${cfg.provider} · ${cfg.model}`}{cfg.attestation === "none" ? " (no hardware attestation)" : ""}. The pot can only move through the vault, never by the AI's say-so.
+          {cfg.demo ? `${netNote(cfg)}. ` : ""}Model: {cfg.provider === "mock" ? "scripted demo model" : `${cfg.provider} · ${cfg.model}`}{cfg.attestation === "none" ? " (no hardware attestation)" : ""}. The pot can only move through the vault, never by the AI's say-so.
         </p>}
       </section>
 

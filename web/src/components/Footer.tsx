@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { ScrambleText } from "./ScrambleText";
 import { useConfig } from "../lib/hooks";
+import { netNote } from "../lib/format";
 
 export function Footer() {
   const { data: cfg } = useConfig();
@@ -13,7 +14,7 @@ export function Footer() {
           <div className="footer__note">
             <h4>Honest by design</h4>
             <p>The vault contract, not the AI, decides whether money moves. The AI holds a restricted key that can only call <code>release</code> and <code>close_session</code>; the vault has no full-access key.</p>
-            {cfg && <p className="footer__net">Network: {cfg.network}{cfg.demo ? " · demo data, play money" : ""} · model: {cfg.provider === "mock" ? "scripted demo model" : `${cfg.provider} / ${cfg.model}`}{cfg.attestation === "none" ? " · no TEE attestation" : ""}</p>}
+            {cfg && <p className="footer__net">{netNote(cfg)} · model: {cfg.provider === "mock" ? "scripted demo model" : `${cfg.provider} / ${cfg.model}`}{cfg.attestation === "none" ? " · no TEE attestation" : ""}</p>}
           </div>
         </div>
         <ScrambleText as="div" className="footer__word" text="Vaultbreak" />

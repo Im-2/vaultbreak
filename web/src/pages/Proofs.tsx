@@ -2,7 +2,7 @@ import { Link, useParams } from "react-router-dom";
 import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
-import { Copy, TxLink } from "../components/TxLink";
+import { AcctLink, Copy, TxLink } from "../components/TxLink";
 import { shortHash, timeAgo } from "../lib/format";
 import { useConfig, useFetch } from "../lib/hooks";
 
@@ -67,9 +67,10 @@ function Walkthrough({ id }: { id: string }) {
       <div className="proofs-head">
         <div><small className="label">Session</small><h2 className="display display--sm">{d.session.guardian_name}</h2><p className="muted">{d.session.status === "won" ? "The Guardian released its pot" : d.session.status === "failed" ? "The Guardian held" : d.session.status} · {d.session.turns} turns · {timeAgo(d.session.started_at)}</p></div>
         <div className="proofs-head__meta">
-          <div><small>Closing / release tx</small><TxLink tx={d.session.tx_release ?? d.session.tx_close} cfg={cfg} /></div>
+          <div><small>Release tx</small><TxLink tx={d.session.tx_release} cfg={cfg} /></div>
+          <div><small>Close tx</small><TxLink tx={d.session.tx_close} cfg={cfg} /></div>
           <div><small>Transcript hash</small><span className="mono">{shortHash(d.session.transcript_hash, 10, 8)}</span></div>
-          <div><small>Vault</small><span className="mono">{shortHash(d.vault_account, 12, 10)}</span></div>
+          <div><small>Vault</small><AcctLink id={d.vault_account} cfg={cfg} /></div>
         </div>
       </div>
 
