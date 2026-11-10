@@ -3,6 +3,7 @@ import { Route, Routes, useLocation } from "react-router-dom";
 import { AuthProvider, MotionProvider } from "./lib/hooks";
 import { Cursor } from "./components/Cursor";
 import { Loader } from "./components/Loader";
+import { OfflineBanner } from "./components/OfflineBanner";
 import { Nav } from "./components/Nav";
 import { Footer } from "./components/Footer";
 import { SignInDialog } from "./components/SignInDialog";
@@ -40,6 +41,7 @@ export default function App() {
         <Loader />
         <Cursor />
         <ScrollTop />
+        <OfflineBanner />
         <Nav />
         <Routes>
           <Route path="/" element={<Landing />} />

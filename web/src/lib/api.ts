@@ -34,7 +34,10 @@ export async function api<T>(path: string, opts: { method?: string; body?: unkno
   });
   const text = await res.text();
   let json: any = null; try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
-  if (!res.ok) throw new ApiError(res.status, json?.error ?? `${res.status} ${res.statusText}`, json);
+  if (!res.ok) {
+    if (json === null && (res.status === 502 || res.status === 503 || res.status === 504 || res.status === 530)) throw new ApiError(res.status, "The demo backend is offline right now. Please try again in a few minutes.", { offline: true });
+    throw new ApiError(res.status, json?.error ?? `${res.status} ${res.statusText}`, json);
+  }
   return json as T;
 }
 

@@ -45,6 +45,7 @@ Write-Host "[serve] tunnel: $tunnel"
 Start-Sleep 4
 try { Invoke-RestMethod "$tunnel/stats" -TimeoutSec 15 | Out-Null } catch { Write-Host "[serve] note: tunnel not answering yet ($($_.Exception.Message))" }
 
+Push-Location $repo; node scripts/publish-site-files.mjs $tunnel; Pop-Location
 $vj = Join-Path $repo "web\vercel.json"
 $json = Get-Content $vj -Raw
 $json = [regex]::Replace($json, '"destination": "https://[^"]*/:path\*"', "`"destination`": `"$tunnel/:path*`"")
