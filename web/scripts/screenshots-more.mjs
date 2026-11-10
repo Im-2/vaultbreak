@@ -65,7 +65,7 @@ const flows = {
     await page.goto(`${base}/swarms?noloader`, { waitUntil: "load" }); await sleep(2000);
     await signIn(page, `lead${kind}${rand()}`); await sleep(1500);
     await top(page); await snap(page, "swarms-empty", kind);
-    await page.locator("select").selectOption({ label: /Soft Sally|Gullible Gus/ }).catch(async () => { await page.locator("select").selectOption({ index: 0 }); });
+    { const v = await page.locator("select option").evaluateAll((os, kind) => os.find((o) => (kind === "desktop" ? /Soft Sally/ : /Gullible Gus/).test(o.textContent))?.value, kind); await page.locator("select").selectOption(v); }
     await page.getByRole("button", { name: /Open the pool/ }).click();
     await page.getByText(/Open for contributions/).first().waitFor({ timeout: 40000 }); await sleep(1000);
     await page.locator('input[aria-label="Amount in NEAR"]').fill("1"); await page.getByRole("button", { name: "Contribute", exact: true }).click(); await sleep(3500);
