@@ -1,12 +1,13 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
-import { randomBytes, randomUUID } from "node:crypto";
+import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
+import { cors } from "hono/cors";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { KeyPair } from "near-api-js";
 import { verifyMessage } from "near-api-js/nep413";
 import type { Config } from "./config.ts";
 import { now, type DB } from "./db.ts";
-import { isTransportError, listKeys, provider, retryTransport, view } from "./chain.ts";
+import { accountFrom, isTransportError, listKeys, NEAR, provider, retryTransport, view } from "./chain.ts";
 import { decrypt, sha256Hex } from "./crypto.ts";
 import { GuardianRuntime, type GuardianRow, type SessionRow } from "./guardian.ts";
 import { createGuardian, registerGuardian } from "./guardians.ts";
@@ -17,10 +18,13 @@ import { fetchAttestation, newNonce, verifyAttestation, type QuoteVerifier } fro
 const AUTH_RECIPIENT = "vaultbreak";
 const AUTH_MESSAGE = "Log in to Vaultbreak";
 
-export interface AppDeps { db: DB; cfg: Config; llm: Llm; pkey: Buffer; verifyQuote?: QuoteVerifier }
+/** Operator account that creates + funds custodial player accounts (zero-wallet play). */
+export interface CustodialCfg { funderId: string; funderSecret: string; fundNear: number }
+export interface UiInfo { network?: string; explorer?: string; demo?: boolean }
 
-export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
+export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: AppDeps & { custodial?: CustodialCfg; ui?: UiInfo }) {
   const app = new Hono();
+  app.use("*", cors({ origin: (o) => o ?? "*", allowHeaders: ["content-type", "authorization", "x-api-key", "x-admin-token"], allowMethods: ["GET", "POST", "OPTIONS"] }));
   const runtime = new GuardianRuntime(db, cfg, llm, pkey);
   const p = provider(cfg.rpcUrl);
   const getG = (id: string) => db.prepare("SELECT * FROM guardians WHERE id=?").get(id) as any as GuardianRow & Record<string, any> | undefined;
@@ -63,7 +67,8 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   async function publicGuardian(g: any, full = false) {
     const { state, stats, params } = await liveOrCached(g);
     return {
-      id: g.id, name: g.name, vault_account: g.vault_account, owner: state.owner, status: state.status,
+      id: g.id, name: g.name, vault_account: g.vault_account, owner: state.owner, status: state.status, created_at: g.created_at,
+      art: state.status === "Defeated" ? "defeated" : stats.streak >= 5 ? "veteran" : "armed",
       pot: state.pot, min_fee: params.min_fee, turns_max: params.turns_max, session_ttl_ms: params.session_ttl_ms,
       stats, prompt_hash: g.prompt_hash, revealed: !!g.revealed, model: g.model, danger_mode: !!g.danger_mode,
       ...(g.registry ? { nft: { registry: g.registry, token_id: g.id, owner: state.owner } } : {}),
@@ -247,7 +252,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
   app.get("/leaderboard", async (c) => {
     const gs = db.prepare("SELECT id, name, state_json FROM guardians").all() as any[];
     const guardians = gs.filter((g) => g.state_json).map((g) => { const j = JSON.parse(g.state_json); return { id: g.id, name: g.name, streak: j.stats.streak, attempts: j.stats.attempts, wins: j.stats.wins, status: j.state.status, pot: j.state.pot }; }).sort((a, b) => b.streak - a.streak);
-    const attackers = db.prepare("SELECT attacker, COUNT(*) AS wins FROM sessions WHERE status='won' GROUP BY attacker ORDER BY wins DESC LIMIT 50").all();
+    const attackers = (db.prepare("SELECT s.controller AS attacker, COUNT(*) AS wins, c.display_name AS display FROM sessions s LEFT JOIN custodial c ON c.account_id = s.controller WHERE s.status='won' GROUP BY s.controller ORDER BY wins DESC LIMIT 50").all() as any[]).map((r) => ({ attacker: r.attacker ?? "unknown", wins: r.wins, display: r.display ?? null }));
     return c.json({ guardians, attackers });
   });
 
@@ -405,6 +410,143 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote }: AppDeps) {
     const id = randomUUID();
     db.prepare("INSERT INTO sessions(id, guardian_id, onchain_session_id, attacker, status, started_at, controller) VALUES (?,?,?,?, 'open', ?, ?)").run(id, g.id, onchain_session_id, cfg.pool, now(), who);
     return c.json({ session_id: id, turns_max: g.turns_max, expires_at: s.expires_at, pool: poolId(c) });
+  });
+
+  // ================= web UI support =================
+  const netLabel = ui?.network ?? (/127\.0\.0\.1|localhost/.test(cfg.rpcUrl) ? "local sandbox" : /testnet/.test(cfg.rpcUrl + (cfg.registry ?? "")) ? "testnet" : "custom");
+  const explorer = ui?.explorer ?? (netLabel === "testnet" ? "https://testnet.nearblocks.io" : "");
+  const dayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+  app.get("/config", (c) => c.json({
+    network: netLabel, explorer, demo: !!ui?.demo, provider: cfg.llm.provider, model: cfg.llm.model,
+    registry: cfg.registry ?? null, pool: cfg.pool ?? null, custodial: !!custodial,
+    attestation: cfg.llm.provider === "nearai" ? "near-ai-tee" : "none",
+  }));
+
+  // Live aggregates (guardian state read from chain; counters from the API database).
+  app.get("/stats", async (c) => {
+    const gs = db.prepare("SELECT * FROM guardians WHERE pending=0").all() as any[];
+    const live = await Promise.all(gs.map((g) => liveOrCached(g).catch(() => null)));
+    let potArmed = 0n, attempts = 0, wins = 0, alive = 0, blockedOnChain = 0;
+    for (const l of live) {
+      if (!l) continue;
+      attempts += Number(l.stats.attempts); wins += Number(l.stats.wins); blockedOnChain += Number(l.stats.blocked_reported);
+      if (l.state.status === "Armed") { alive++; potArmed += BigInt(l.state.pot); }
+    }
+    const open = (db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE status='open'").get() as any).n;
+    const blockedToday = (db.prepare("SELECT COUNT(*) AS n FROM blocked_attempts WHERE created_at >= ?").get(dayStart()) as any).n;
+    return c.json({ guardians: gs.length, alive, total_pot: potArmed.toString(), attempts, wins, open_sessions: open, blocked_today: blockedToday, blocked_reported: blockedOnChain });
+  });
+
+  // ---- custodial (zero-wallet) players: name + passphrase. DEMO-GRADE: the server holds the keys; never use for real funds.
+  let fundQueue: Promise<unknown> = Promise.resolve();
+  const funder = custodial ? accountFrom(custodial.funderId, cfg.rpcUrl, custodial.funderSecret) : null;
+  const queueFund = <T,>(fn: () => Promise<T>): Promise<T> => { const r = fundQueue.then(fn, fn); fundQueue = r.catch(() => {}); return r; };
+  const hashSecret = (secret: string, salt: string) => scryptSync(secret, salt, 32).toString("hex");
+  const issueToken = (account_id: string) => {
+    const token = randomBytes(24).toString("hex");
+    db.prepare("INSERT INTO auth_tokens(token, account_id, expires_at) VALUES (?,?,?)").run(token, account_id, now() + 7 * 24 * 3600_000);
+    return token;
+  };
+  const custodialRow = (acct: string | null) => (acct ? (db.prepare("SELECT * FROM custodial WHERE account_id=?").get(acct) as any) : null);
+  const creditsOf = async (acct: string) => BigInt((await retryTransport(() => p.viewAccount({ accountId: acct }))).amount);
+
+  app.post("/custodial/signin", async (c) => {
+    if (!custodial || !funder) return c.json({ error: "custodial play is not enabled on this server" }, 501);
+    const b = await c.req.json().catch(() => ({}));
+    const display = String(b.name ?? "").trim();
+    const secret = String(b.secret ?? "");
+    if (display.length < 2 || display.length > 32) return c.json({ error: "name must be 2-32 characters" }, 400);
+    if (secret.length < 6 || secret.length > 128) return c.json({ error: "passphrase must be 6-128 characters" }, 400);
+    const nameKey = display.toLowerCase();
+    const existing = db.prepare("SELECT * FROM custodial WHERE name_key=?").get(nameKey) as any;
+    if (existing) {
+      const ok = timingSafeEqual(Buffer.from(hashSecret(secret, existing.salt), "hex"), Buffer.from(existing.hash, "hex"));
+      if (!ok) return c.json({ error: "wrong passphrase for that name" }, 401);
+      return c.json({ token: issueToken(existing.account_id), account_id: existing.account_id, name: existing.display_name, created: false });
+    }
+    const slug = nameKey.replace(/[^a-z0-9]/g, "").slice(0, 12) || "player";
+    const accountId = `${slug}${randomBytes(3).toString("hex")}.${custodial.funderId}`;
+    const kp = KeyPair.fromRandom("ed25519");
+    const keyRef = `custodial-${accountId}`;
+    mkdirSync(cfg.keysDir, { recursive: true });
+    writeFileSync(`${cfg.keysDir}/${keyRef}.json`, JSON.stringify({ account_id: accountId, public_key: kp.getPublicKey().toString(), private_key: kp.toString() }));
+    const fund = BigInt(Math.round(custodial.fundNear * 1e6)) * 10n ** 18n;
+    try {
+      await queueFund(() => retryTransport(() => funder.createAccount({ newAccountId: accountId, publicKey: kp.getPublicKey().toString(), nearToTransfer: fund })));
+    } catch (e: any) { return c.json({ error: `could not create your play account: ${String(e?.message ?? e).slice(0, 120)}` }, 502); }
+    const salt = randomBytes(16).toString("hex");
+    db.prepare("INSERT INTO custodial(name_key, display_name, account_id, key_ref, salt, hash, created_at) VALUES (?,?,?,?,?,?,?)").run(nameKey, display, accountId, keyRef, salt, hashSecret(secret, salt), now());
+    return c.json({ token: issueToken(accountId), account_id: accountId, name: display, created: true }, 201);
+  });
+
+  app.get("/me", async (c) => {
+    const acct = account(c); if (!acct) return c.json({ error: "login required" }, 401);
+    const cu = custodialRow(acct);
+    const rows = db.prepare("SELECT status, COUNT(*) AS n FROM sessions WHERE controller=? GROUP BY status").all(acct) as any[];
+    const n = (st: string) => rows.find((r) => r.status === st)?.n ?? 0;
+    const recent = db.prepare("SELECT id, guardian_id, status, turns, started_at, tx_release FROM sessions WHERE controller=? ORDER BY started_at DESC LIMIT 20").all(acct);
+    let credits: string | null = null; try { credits = (await creditsOf(acct)).toString(); } catch { /* shown as unavailable */ }
+    return c.json({ account: acct, name: cu?.display_name ?? null, custodial: !!cu, credits, wins: n("won"), failed: n("failed"), open: n("open"), recent });
+  });
+
+  // Demo faucet for play credits (custodial players only; capped).
+  app.post("/custodial/topup", async (c) => {
+    const acct = account(c); const cu = custodialRow(acct);
+    if (!custodial || !funder || !cu) return c.json({ error: "custodial players only" }, 403);
+    const have = await creditsOf(cu.account_id);
+    if (have > 5n * NEAR) return c.json({ error: "you already have plenty of credits" }, 409);
+    await queueFund(() => retryTransport(() => funder.transfer({ receiverId: cu.account_id, amount: BigInt(Math.round(custodial.fundNear * 1e6)) * 10n ** 18n })));
+    return c.json({ credits: (await creditsOf(cu.account_id)).toString() });
+  });
+
+  // One click: the server pays the entry fee from the player's custodial account and opens the session (no wallet, no gas UI).
+  app.post("/guardians/:id/play", async (c) => {
+    const acct = account(c); if (!acct) return c.json({ error: "sign in to play" }, 401);
+    const cu = custodialRow(acct); if (!cu) return c.json({ error: "this endpoint is for custodial players; use the SDK with your own account" }, 403);
+    const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
+    const live = await liveOrCached(g);
+    if (live.state.status !== "Armed") return c.json({ error: "this guardian has been defeated" }, 409);
+    // resume an attempt that is still open instead of paying twice
+    const open = db.prepare("SELECT id, onchain_session_id FROM sessions WHERE guardian_id=? AND controller=? AND status='open' ORDER BY started_at DESC LIMIT 1").get(g.id, acct) as any;
+    if (open) {
+      const s: any = await view(p, g.vault_account, "get_session", { session_id: String(open.onchain_session_id) });
+      if (s?.status === "Open") return c.json({ session_id: open.id, onchain_session_id: open.onchain_session_id, resumed: true, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });
+      db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(s?.status ?? "failed").toLowerCase(), open.id);
+    }
+    const fee = BigInt(live.params.min_fee);
+    if ((await creditsOf(acct)) < fee + NEAR / 20n) return c.json({ error: "not enough credits for the entry fee", fee: fee.toString() }, 402);
+    const key = JSON.parse(readFileSync(`${cfg.keysDir}/${cu.key_ref}.json`, "utf8"));
+    let onchainId: string;
+    try {
+      onchainId = String(await retryTransport(() => accountFrom(acct, cfg.rpcUrl, key.private_key).callFunction({ contractId: g.vault_account, methodName: "start_session", args: {}, deposit: fee })));
+    } catch (e: any) {
+      const msg = String(e?.message ?? e);
+      return c.json({ error: /too many open/.test(msg) ? "you already have an open attempt on this guardian" : /defeated/.test(msg) ? "this guardian has been defeated" : `could not start the attempt: ${msg.slice(0, 120)}` }, 409);
+    }
+    const s: any = await view(p, g.vault_account, "get_session", { session_id: onchainId });
+    const id = randomUUID();
+    db.prepare("INSERT INTO sessions(id, guardian_id, onchain_session_id, attacker, status, started_at, controller) VALUES (?,?,?,?, 'open', ?, ?)").run(id, g.id, Number(onchainId), acct, now(), acct);
+    return c.json({ session_id: id, onchain_session_id: Number(onchainId), resumed: false, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });
+  });
+
+  // Everything the "Prove it" drawer shows, in one call.
+  app.get("/guardians/:id/prove", async (c) => {
+    const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
+    const [{ state, stats }, keys] = await Promise.all([liveOrCached(g), listKeys(p, g.vault_account).catch(() => null)]);
+    const blocked = db.prepare("SELECT b.tool, b.args, b.chain_error, b.created_at, s.id AS session_id FROM blocked_attempts b JOIN sessions s ON s.id = b.session_id WHERE s.guardian_id=? ORDER BY b.id DESC LIMIT 20").all(g.id);
+    const sessions = db.prepare("SELECT id, status, turns, started_at, closed_at, tx_release, tx_close, transcript_hash FROM sessions WHERE guardian_id=? ORDER BY started_at DESC LIMIT 20").all(g.id);
+    const signed = (db.prepare("SELECT COUNT(*) AS n FROM exchanges e JOIN sessions s ON s.id = e.session_id WHERE s.guardian_id=? AND e.signature IS NOT NULL").get(g.id) as any).n;
+    return c.json({
+      guardian: { id: g.id, name: g.name, vault_account: g.vault_account, model: g.model, provider: cfg.llm.provider },
+      vault: { owner: state.owner, status: state.status, prompt_hash: state.prompt_hash, revealed: !!g.revealed,
+        keys: keys && keys.map((k) => ({ kind: k.kind, methods: k.methodNames ?? null, receiver: k.receiverId ?? null })),
+        no_full_access_key: keys ? keys.every((k) => k.kind === "FunctionCall") : null },
+      stats, blocked, sessions,
+      attestation: cfg.llm.provider === "nearai"
+        ? { available: true, signed_exchanges: signed, link: `/guardians/${g.id}/attestation` }
+        : { available: false, signed_exchanges: 0, reason: `This guardian's model runs on ${cfg.llm.provider === "mock" ? "a scripted demo model" : cfg.llm.provider}, which gives no TEE attestation. The vault guarantees below are enforced by the chain; the model's answers are not attested.` },
+    });
   });
 
   app.get("/health", (c) => c.json({ ok: true }));

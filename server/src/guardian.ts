@@ -126,7 +126,9 @@ export class GuardianRuntime {
         this.db.prepare("UPDATE sessions SET status='won', tx_release=?, closed_at=? WHERE id=?").run(tx, now(), s.id);
         s.status = "won";
         emit({ event: "tool_result", data: { id: call.id, ok: true, tx } });
-        emit({ event: "won", data: { tx, attacker: s.attacker, session: s.id } });
+        let payout: string | undefined;
+        try { payout = ((await view(provider(this.cfg.rpcUrl), g.vault_account, "get_session", { session_id: String(s.onchain_session_id) })) as any)?.payout; } catch { /* older vaults do not record it */ }
+        emit({ event: "won", data: { tx, attacker: s.attacker, session: s.id, ...(payout && payout !== "0" ? { payout } : {}) } });
         return { text: `released (tx ${tx})`, won: true };
       }
       if (call.name === "send_funds") {

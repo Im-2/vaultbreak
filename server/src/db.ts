@@ -36,6 +36,10 @@ export function openDb(path: string): DB {
     CREATE TABLE IF NOT EXISTS attestations(
       id INTEGER PRIMARY KEY AUTOINCREMENT, guardian_id TEXT NOT NULL, model TEXT NOT NULL, nonce TEXT NOT NULL, report_json TEXT NOT NULL, fetched_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_nonces(nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL);
+    -- zero-wallet players: the server holds a custodial NEAR account per player (demo-grade: name + passphrase)
+    CREATE TABLE IF NOT EXISTS custodial(
+      name_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, account_id TEXT UNIQUE NOT NULL, key_ref TEXT NOT NULL,
+      salt TEXT NOT NULL, hash TEXT NOT NULL, created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS auth_tokens(token TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
   `);
   for (const ddl of ["ALTER TABLE api_keys ADD COLUMN agent_account TEXT", "ALTER TABLE api_keys ADD COLUMN label TEXT", "ALTER TABLE api_keys ADD COLUMN spent TEXT NOT NULL DEFAULT '0'", "ALTER TABLE api_keys ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0", "ALTER TABLE sessions ADD COLUMN controller TEXT", "ALTER TABLE guardians ADD COLUMN registry TEXT", "ALTER TABLE guardians ADD COLUMN pending INTEGER NOT NULL DEFAULT 0"]) {

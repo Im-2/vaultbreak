@@ -4,7 +4,12 @@
   "type": "module",
   "version": "0.1.0",
   "license": "MIT",
-  "workspaces": ["tests", "server", "sdk"],
+  "workspaces": [
+    "tests",
+    "server",
+    "sdk",
+    "web"
+  ],
   "scripts": {
     "build:contracts": "bash scripts/build-contracts.sh",
     "test:contracts": "cargo test -p vaultbreak-vault -p vaultbreak-registry -p vaultbreak-pool",
@@ -14,6 +19,11 @@
     "demo:privacy": "node --import tsx scripts/privacy-demo.ts",
     "demo:nft": "node --import tsx scripts/nft-demo.ts",
     "demo:swarm": "node --import tsx scripts/swarm-demo.ts",
+    "dev": "bash scripts/dev.sh",
+    "dev:api": "bash scripts/dev.sh --no-web",
     "test": "npm run test:contracts && npm run test:sandbox && npm run test:server"
+  },
+  "devDependencies": {
+    "playwright": "^1.65.0"
   }
 }

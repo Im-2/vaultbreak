@@ -46,3 +46,4 @@ export async function deployPool(ctx, registryId, { fundNear = 20n, name = "pool
   await acct.callFunction({ contractId: id, methodName: "new", args: { registry: registryId }, gas: 100_000_000_000_000n });
   return { id, acct, kp };
 }
+export { DEFAULT_PRIVATE_KEY };
