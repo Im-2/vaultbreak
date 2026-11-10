@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { cors } from "hono/cors";
+import { bodyLimit } from "hono/body-limit";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { KeyPair } from "near-api-js";
 import { verifyMessage } from "near-api-js/nep413";
@@ -12,6 +13,7 @@ import { decrypt, sha256Hex } from "./crypto.ts";
 import { GuardianRuntime, type GuardianRow, type SessionRow } from "./guardian.ts";
 import { createGuardian, registerGuardian } from "./guardians.ts";
 import { syncGuardian } from "./indexer.ts";
+import { formatResults, verifySession } from "./privacy/verify.ts";
 import type { Llm } from "./llm.ts";
 import { fetchAttestation, newNonce, verifyAttestation, type QuoteVerifier } from "./privacy/attestation.ts";
 
@@ -24,8 +26,51 @@ export interface UiInfo { network?: string; explorer?: string; demo?: boolean }
 
 export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: AppDeps & { custodial?: CustodialCfg; ui?: UiInfo }) {
   const app = new Hono();
-  app.use("*", cors({ origin: (o) => o ?? "*", allowHeaders: ["content-type", "authorization", "x-api-key", "x-admin-token"], allowMethods: ["GET", "POST", "OPTIONS"] }));
-  const runtime = new GuardianRuntime(db, cfg, llm, pkey);
+  // CORS: only the public website origin and local development. (The website normally reaches us through its own /api rewrite.)
+  const corsOk = (o: string | undefined) => !!o && (o === cfg.publicBaseUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(o));
+  app.use("*", cors({ origin: (o) => (corsOk(o) ? o : ""), allowHeaders: ["content-type", "authorization", "x-api-key", "x-admin-token"], allowMethods: ["GET", "POST", "OPTIONS"] }));
+  app.use("*", bodyLimit({ maxSize: 64 * 1024, onError: (c) => c.json({ error: "request too large" }, 413) }));
+
+  // Per-IP rate limits (client IP from the proxy chain: Vercel -> tunnel -> here). Direct local requests carry no proxy headers and are exempt.
+  const hitsMap = new Map<string, number[]>();
+  const clientIp = (c: any): string | null => (c.req.header("x-forwarded-for")?.split(",")[0].trim() || c.req.header("x-real-ip") || c.req.header("cf-connecting-ip") || null);
+  const allow = (key: string, n: number, windowMs: number): boolean => {
+    const t = Date.now(); const arr = (hitsMap.get(key) ?? []).filter((x) => t - x < windowMs);
+    if (arr.length >= n) { hitsMap.set(key, arr); return false; }
+    arr.push(t); hitsMap.set(key, arr); return true;
+  };
+  setInterval(() => { const t = Date.now(); for (const [k, v] of hitsMap) if (!v.length || t - v[v.length - 1] > 86_400_000) hitsMap.delete(k); }, 600_000).unref?.();
+  const RULES: { re: RegExp; key: string; n: number; ms: number }[] = [
+    { re: /^\/sessions\/[^/]+\/messages$/, key: "chat", n: cfg.limits.chatPerMinute, ms: 60_000 },
+    { re: /^\/sessions\/[^/]+\/messages$/, key: "chatday", n: cfg.limits.chatPerDay, ms: 86_400_000 },
+    { re: /^\/custodial\/signin$/, key: "signin", n: cfg.limits.signinPerHour, ms: 3_600_000 },
+    { re: /^\/guardians\/[^/]+\/play$/, key: "play", n: 40, ms: 3_600_000 },
+    { re: /^\/me\/guardians$/, key: "mint", n: 10, ms: 86_400_000 },
+    { re: /^\/me\/pools/, key: "pool", n: 60, ms: 3_600_000 },
+    { re: /^\/custodial\/topup$/, key: "topup", n: 10, ms: 3_600_000 },
+  ];
+  app.use("*", async (c, next) => {
+    const ip = clientIp(c);
+    c.set("ip" as any, ip);
+    if (!ip || cfg.limits.disabled) return next();
+    if (!allow(`all:${ip}`, cfg.limits.perMinute, 60_000)) return c.json({ error: "too many requests, slow down" }, 429);
+    if (c.req.method === "POST") {
+      const path = new URL(c.req.url).pathname;
+      for (const r of RULES) if (r.re.test(path) && !allow(`${r.key}:${ip}`, r.n, r.ms)) return c.json({ error: "rate limit reached for this action. Try again later." }, 429);
+    }
+    return next();
+  });
+  // ---- protect the free model quota: a daily cap on model calls, persisted so a restart cannot reset it
+  const today = () => new Date().toISOString().slice(0, 10);
+  const modelCallsToday = () => ((db.prepare("SELECT model_calls AS n FROM usage WHERE day=?").get(today()) as any)?.n ?? 0) as number;
+  const cappedLlm: Llm = cfg.llm.provider === "mock" ? llm : {
+    complete: async (req) => {
+      if (modelCallsToday() >= cfg.limits.modelDailyCap) throw new Error("The demo's daily AI budget is used up. It resets tomorrow (UTC). You can also run Vaultbreak locally with your own model key.");
+      db.prepare("INSERT INTO usage(day, model_calls) VALUES (?, 1) ON CONFLICT(day) DO UPDATE SET model_calls = model_calls + 1").run(today());
+      return llm.complete(req);
+    },
+  };
+  const runtime = new GuardianRuntime(db, cfg, cappedLlm, pkey);
   const p = provider(cfg.rpcUrl);
   const getG = (id: string) => db.prepare("SELECT * FROM guardians WHERE id=?").get(id) as any as GuardianRow & Record<string, any> | undefined;
   const getS = (id: string) => db.prepare("SELECT * FROM sessions WHERE id=?").get(id) as any as SessionRow & Record<string, any> | undefined;
@@ -119,6 +164,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const potNear = Number(BigInt(pg.pot) / 10n ** 20n) / 1e4;
     return c.json({
       title: `Guardian ${pg.name}`,
+      image: `${cfg.publicBaseUrl}/assets/emblem-${pg.art}.webp`, external_url: `${cfg.publicBaseUrl}/guardian/${pg.id}`,
       description: `A Vaultbreak AI guardian. Status ${pg.status}, pot ${potNear} NEAR, ${pg.stats.attempts} attempts, ${pg.stats.wins} wins, streak ${pg.stats.streak}.`,
       attributes: [
         { trait_type: "status", value: pg.status }, { trait_type: "pot_near", value: potNear },
@@ -224,7 +270,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     if ((s.controller ?? s.attacker) !== acct) return c.json({ error: "not your session" }, 403);
     const g = getG(s.guardian_id)!;
     const { text } = await c.req.json();
-    if (typeof text !== "string" || !text.trim() || text.length > 2000) return c.json({ error: "text required (max 2000 chars)" }, 400);
+    if (typeof text !== "string" || !text.trim() || text.length > cfg.limits.messageMaxChars) return c.json({ error: `text required (max ${cfg.limits.messageMaxChars} chars)` }, 400);
     return streamSSE(c, async (stream) => {
       let chainP = Promise.resolve();
       const emit = (e: { event: string; data: unknown }) => { chainP = chainP.then(() => stream.writeSSE({ event: e.event, data: JSON.stringify(e.data) })); };
@@ -421,6 +467,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     network: netLabel, explorer, demo: !!ui?.demo, provider: cfg.llm.provider, model: cfg.llm.model,
     registry: cfg.registry ?? null, pool: cfg.pool ?? null, custodial: !!custodial,
     attestation: cfg.llm.provider === "nearai" ? "near-ai-tee" : "none",
+    model_calls_today: cfg.llm.provider === "mock" ? null : modelCallsToday(), model_daily_cap: cfg.llm.provider === "mock" ? null : cfg.limits.modelDailyCap, public_base_url: cfg.publicBaseUrl,
   }));
 
   // Live aggregates (guardian state read from chain; counters from the API database).
@@ -465,6 +512,8 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       if (!ok) return c.json({ error: "wrong passphrase for that name" }, 401);
       return c.json({ token: issueToken(existing.account_id), account_id: existing.account_id, name: existing.display_name, created: false });
     }
+    const ipNow = (c.get("ip" as any) as string | null);
+    if (ipNow && !cfg.limits.disabled && !allow(`newacct:${ipNow}`, cfg.limits.accountsPerIpPerHour, 3_600_000)) return c.json({ error: "too many new play accounts from your network this hour" }, 429);
     const slug = nameKey.replace(/[^a-z0-9]/g, "").slice(0, 12) || "player";
     const accountId = `${slug}${randomBytes(3).toString("hex")}.${custodial.funderId}`;
     const kp = KeyPair.fromRandom("ed25519");
@@ -495,7 +544,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const acct = account(c); const cu = custodialRow(acct);
     if (!custodial || !funder || !cu) return c.json({ error: "custodial players only" }, 403);
     const have = await creditsOf(cu.account_id);
-    if (have > 5n * NEAR) return c.json({ error: "you already have plenty of credits" }, 409);
+    if (have > BigInt(Math.round(custodial.fundNear)) * NEAR) return c.json({ error: "you already have plenty of credits" }, 409);
     await queueFund(() => retryTransport(() => funder.transfer({ receiverId: cu.account_id, amount: BigInt(Math.round(custodial.fundNear * 1e6)) * 10n ** 18n })));
     return c.json({ credits: (await creditsOf(cu.account_id)).toString() });
   });
@@ -511,7 +560,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const open = db.prepare("SELECT id, onchain_session_id FROM sessions WHERE guardian_id=? AND controller=? AND status='open' ORDER BY started_at DESC LIMIT 1").get(g.id, acct) as any;
     if (open) {
       const s: any = await view(p, g.vault_account, "get_session", { session_id: String(open.onchain_session_id) });
-      if (s?.status === "Open") return c.json({ session_id: open.id, onchain_session_id: open.onchain_session_id, resumed: true, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });
+      if (s?.status === "Open") return c.json({ session_id: open.id, onchain_session_id: open.onchain_session_id, resumed: true, via_pool: s.attacker !== acct, turns_max: g.turns_max, fee: s.fee, expires_at: s.expires_at });
       db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(s?.status ?? "failed").toLowerCase(), open.id);
     }
     const fee = BigInt(live.params.min_fee);
@@ -547,6 +596,143 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
         ? { available: true, signed_exchanges: signed, link: `/guardians/${g.id}/attestation` }
         : { available: false, signed_exchanges: 0, reason: `This guardian's model runs on ${cfg.llm.provider === "mock" ? "a scripted demo model" : cfg.llm.provider}, which gives no TEE attestation. The vault guarantees below are enforced by the chain; the model's answers are not attested.` },
     });
+  });
+
+  // ================= UI: create / my guardians / swarms / proofs =================
+  const cleanErr = (e: any) => String(e?.message ?? e).replace(/^Smart contract panicked: /, "").slice(0, 200);
+  const signerOf = (acct: string | null) => {
+    const cu = custodialRow(acct); if (!cu) return null;
+    const key = JSON.parse(readFileSync(`${cfg.keysDir}/${cu.key_ref}.json`, "utf8"));
+    return accountFrom(cu.account_id, cfg.rpcUrl, key.private_key);
+  };
+  const nearYocto = (n: number) => BigInt(Math.round(n * 1e6)) * 10n ** 18n;
+  const authHeader = (c: any) => ({ authorization: c.req.header("authorization") ?? "", "content-type": "application/json" });
+
+  app.get("/create/quote", async (c) => {
+    if (!cfg.registry) return c.json({ error: "no registry configured" }, 501);
+    const seed = Number(c.req.query("seed_near") ?? 1);
+    if (!(seed >= 0.5 && seed <= 100000)) return c.json({ error: "seed_near must be at least 0.5" }, 400);
+    const required = BigInt((await view(p, cfg.registry, "mint_requirements", {})) as string);
+    const total = required - nearYocto(0.5) + nearYocto(seed);
+    return c.json({ seed: nearYocto(seed).toString(), overhead: (total - nearYocto(seed)).toString(), total: total.toString(), min_seed: nearYocto(0.5).toString() });
+  });
+
+  // Guardians I own (vault owner == me), with the creator fees I can claim.
+  app.get("/me/guardians", async (c) => {
+    const acct = account(c); if (!acct) return c.json({ error: "login required" }, 401);
+    const gs = db.prepare("SELECT * FROM guardians WHERE pending=0").all() as any[];
+    const out: any[] = [];
+    await Promise.all(gs.map(async (g) => {
+      try { const l = await liveOrCached(g); if (l.state.owner === acct) out.push({ ...(await publicGuardian(g)), creator_balance: l.state.creator_balance }); } catch { /* skip unreadable */ }
+    }));
+    return c.json(out.sort((a, b) => b.created_at - a.created_at));
+  });
+
+  // Zero-wallet creation: the server prepares the mint and signs it with the player's custodial account.
+  app.post("/me/guardians", async (c) => {
+    const acct = account(c); if (!acct) return c.json({ error: "sign in to create a Guardian" }, 401);
+    const signer = signerOf(acct); if (!signer) return c.json({ error: "custodial players only" }, 403);
+    const mine = (db.prepare("SELECT COUNT(*) AS n FROM guardians WHERE owner=? AND created_at > ?").get(acct, now() - 24 * 3600_000) as any).n;
+    if (mine >= 5) return c.json({ error: "daily limit: 5 new Guardians per player" }, 429);
+    const body = await c.req.json().catch(() => ({}));
+    const prep = await app.request("/guardians/prepare", { method: "POST", headers: authHeader(c), body: JSON.stringify(body) });
+    const pj: any = await prep.json();
+    if (!prep.ok) return c.json(pj, prep.status as any);
+    const a = pj.mint_transaction.actions[0].params;
+    try {
+      const have = BigInt((await retryTransport(() => p.viewAccount({ accountId: acct }))).amount);
+      if (have < BigInt(a.deposit) + (NEAR * 4n) / 10n) { db.prepare("DELETE FROM guardians WHERE id=? AND pending=1").run(pj.guardian_id); return c.json({ error: `Not enough credits: this Guardian needs about ${(Number((BigInt(a.deposit) + (NEAR * 4n) / 10n) / 10n ** 22n) / 100).toFixed(1)} NEAR and you have ${(Number(have / 10n ** 22n) / 100).toFixed(1)}. Lower the starting pot or add credits.` }, 402); }
+      await retryTransport(() => signer.callFunction({ contractId: pj.mint_transaction.receiverId, methodName: a.methodName, args: a.args, deposit: BigInt(a.deposit), gas: BigInt(a.gas) }));
+    } catch (e) { db.prepare("DELETE FROM guardians WHERE id=? AND pending=1").run(pj.guardian_id); return c.json({ error: /balance/i.test(cleanErr(e)) ? "Not enough credits to pay for this Guardian. Lower the starting pot or add credits." : `mint failed: ${cleanErr(e)}` }, 409); }
+    const conf = await app.request(`/guardians/${pj.guardian_id}/confirm`, { method: "POST", headers: authHeader(c) });
+    return c.json(await conf.json(), conf.status as any);
+  });
+
+  app.post("/me/guardians/:id/claim", async (c) => {
+    const acct = account(c); const signer = signerOf(acct); if (!acct || !signer) return c.json({ error: "custodial players only" }, 403);
+    const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
+    const before = (await liveOrCached(g)).state;
+    if (before.owner !== acct) return c.json({ error: "you do not own this Guardian" }, 403);
+    if (BigInt(before.creator_balance) === 0n) return c.json({ error: "no creator fees to claim yet" }, 409);
+    try { await retryTransport(() => signer.callFunction({ contractId: g.vault_account, methodName: "claim_creator_fees", args: {}, gas: 100_000_000_000_000n })); }
+    catch (e) { return c.json({ error: cleanErr(e) }, 409); }
+    return c.json({ claimed: before.creator_balance });
+  });
+
+  // ---- swarm pools for custodial players (the contract is the source of truth)
+  const needPoolC = () => (cfg.pool ? null : ({ error: "swarm pools are not configured on this server" }));
+  const poolCall = async (c: any, method: string, args: Record<string, unknown>, depositYocto = 0n, gas = 150_000_000_000_000n) => {
+    const acct = account(c); const signer = signerOf(acct);
+    if (!acct) return { status: 401, body: { error: "sign in first" } };
+    if (!signer) return { status: 403, body: { error: "custodial players only" } };
+    try { return { status: 200, body: { result: await retryTransport(() => signer.callFunction({ contractId: cfg.pool!, methodName: method, args, deposit: depositYocto, gas })) } }; }
+    catch (e) { return { status: 409, body: { error: cleanErr(e) } }; }
+  };
+  app.get("/pools/:id/contributions", async (c) => {
+    if (needPoolC()) return c.json(needPoolC(), 501);
+    try {
+      const rows: any[] = (await view(p, cfg.pool!, "list_contributions", { pool_id: String(c.req.param("id")) })) as any[];
+      return c.json({ supported: true, rows: rows.map((r) => ({ ...r, display: (db.prepare("SELECT display_name FROM custodial WHERE account_id=?").get(r.account) as any)?.display_name ?? null })) });
+    } catch { return c.json({ supported: false, rows: [] }); }
+  });
+  app.post("/me/pools", async (c) => {
+    if (needPoolC()) return c.json(needPoolC(), 501);
+    const b = await c.req.json().catch(() => ({}));
+    const g = getG(String(b.guardian_id ?? "")); if (!g || g.pending || g.vault_account !== `${g.id}.${cfg.registry}`) return c.json({ error: "pick a registry-minted Guardian" }, 404);
+    const r = await poolCall(c, "create_pool", { guardian_id: g.id, target_fee_budget: nearYocto(Number(b.target_fee_near ?? 1)).toString(), controller: null, deadline_ms: String(Math.round(Number(b.deadline_min ?? 60) * 60_000)) });
+    return c.json(r.status === 200 ? { pool_id: String((r.body as any).result) } : r.body, r.status as any);
+  });
+  app.post("/me/pools/:id/contribute", async (c) => {
+    if (needPoolC()) return c.json(needPoolC(), 501);
+    const amount = Number((await c.req.json().catch(() => ({}))).amount_near);
+    if (!(amount >= 0.01)) return c.json({ error: "minimum contribution is 0.01" }, 400);
+    const r = await poolCall(c, "contribute", { pool_id: String(c.req.param("id")) }, nearYocto(amount));
+    return c.json(r.status === 200 ? { ok: true } : r.body, r.status as any);
+  });
+  app.post("/me/pools/:id/attack", async (c) => {
+    if (needPoolC()) return c.json(needPoolC(), 501);
+    const id = String(c.req.param("id"));
+    const pv: any = await view(p, cfg.pool!, "get_pool", { pool_id: id }); if (!pv) return c.json({ error: "not found" }, 404);
+    const g = getG(pv.guardian_id)!;
+    const fee = (await c.req.json().catch(() => ({}))).fee_near != null ? nearYocto(Number((await c.req.json()).fee_near)) : BigInt((await liveOrCached(g)).params.min_fee);
+    const r = await poolCall(c, "attack_with_pool", { pool_id: id, fee: fee.toString() });
+    if (r.status !== 200) return c.json(r.body, r.status as any);
+    const after: any = await view(p, cfg.pool!, "get_pool", { pool_id: id });
+    if (!after.open_session) return c.json({ error: "the vault refused the pool's attack (defeated, or another pool's attempt is open)" }, 409);
+    const bind = await app.request(`/pools/${id}/sessions/verify`, { method: "POST", headers: authHeader(c), body: JSON.stringify({ onchain_session_id: Number(after.open_session) }) });
+    const bj: any = await bind.json();
+    return c.json(bind.ok ? { ...bj, guardian_id: g.id } : bj, bind.status as any);
+  });
+  for (const m of ["settle", "withdraw", "refund", "close_pool"] as const) {
+    app.post(`/me/pools/:id/${m}`, async (c) => {
+      if (needPoolC()) return c.json(needPoolC(), 501);
+      const r = await poolCall(c, m, { pool_id: String(c.req.param("id")) }, 0n, 100_000_000_000_000n);
+      return c.json(r.status === 200 ? { result: (r.body as any).result ?? null } : r.body, r.status as any);
+    });
+  }
+
+  // ---- proofs: recent sessions + the verifier (same code as scripts/verify-session.ts)
+  app.get("/sessions", (c) => {
+    const rows = db.prepare("SELECT s.id, s.guardian_id, g.name AS guardian_name, s.status, s.turns, s.started_at, s.tx_release FROM sessions s JOIN guardians g ON g.id = s.guardian_id WHERE g.pending=0 ORDER BY s.started_at DESC LIMIT 60").all();
+    return c.json(rows);
+  });
+  app.get("/proofs/:session_id/verify", async (c) => {
+    const s = getS(c.req.param("session_id")); if (!s) return c.json({ error: "not found" }, 404);
+    const g = getG(s.guardian_id)!;
+    const exs = db.prepare("SELECT * FROM exchanges WHERE session_id=? ORDER BY id").all(s.id) as any[];
+    const revealed = !!g.revealed;
+    const proofs: any = {
+      session: { id: s.id }, guardian: { id: g.id, vault_account: g.vault_account, model: g.model, prompt_hash: g.prompt_hash }, revealed,
+      ...(revealed ? { prompt: decrypt(g.prompt_ciphertext, pkey) } : {}),
+      turns: db.prepare("SELECT idx, role, content, chat_id FROM turns WHERE session_id=? ORDER BY idx").all(s.id),
+      exchanges: exs.map((e) => ({ idx: e.idx, chat_id: e.chat_id, model: e.model, request_hash: e.request_hash, response_hash: e.response_hash, response_body: e.response_body, signed_text: e.signed_text, signature: e.signature, signing_address: e.signing_address, signing_algo: e.signing_algo, signature_error: e.signature_error, ...(revealed ? { request_body: decrypt(e.request_ciphertext, pkey) } : {}) })),
+    };
+    const results = await verifySession(proofs, {
+      fetchAttestation: (model, nonce) => fetchAttestation(cfg.nearai.baseUrl, model, nonce),
+      onchainPromptHash: async (v) => ((await view(p, v, "get_state")) as any).prompt_hash,
+      verifyQuote,
+    });
+    return c.json({ session: { id: s.id, status: s.status, guardian_id: g.id, guardian_name: g.name, turns: s.turns, started_at: s.started_at, tx_release: s.tx_release, tx_close: s.tx_close, transcript_hash: s.transcript_hash, onchain_session_id: s.onchain_session_id }, vault_account: g.vault_account, provider: cfg.llm.provider, model: g.model, results, text: formatResults(results) });
   });
 
   app.get("/health", (c) => c.json({ ok: true }));

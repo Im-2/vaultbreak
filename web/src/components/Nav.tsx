@@ -8,7 +8,7 @@ const LINKS = [["Arena", "/arena"], ["Create", "/create"], ["Swarms", "/swarms"]
 
 export function Nav() {
   const { reduced, toggle } = useMotion();
-  const { me, openDialog, signOut } = useAuth();
+  const { me, openDialog } = useAuth();
   const [open, setOpen] = useState(false);
   const loc = useLocation();
   return (
@@ -21,7 +21,7 @@ export function Nav() {
             <NavLink key={to} to={to} onClick={() => setOpen(false)} className={({ isActive }) => `pill pill--outline pill--sm ${isActive || loc.pathname.startsWith(to) ? "is-active" : ""}`}>{label}</NavLink>
           ))}
           {me
-            ? <button className="pill pill--outline pill--sm nav__me" onClick={signOut} title="Sign out">{me.name ?? "You"}<span className="nav__credit">{me.credits ? `${(Number(BigInt(me.credits) / 10n ** 22n) / 100).toFixed(1)} credits` : ""}</span></button>
+            ? <NavLink to="/me" onClick={() => setOpen(false)} className="pill pill--outline pill--sm nav__me" title="My Guardians">{me.name ?? "You"}<span className="nav__credit">{me.credits ? `${(Number(BigInt(me.credits) / 10n ** 22n) / 100).toFixed(1)} credits` : ""}</span></NavLink>
             : <button className="pill pill--outline pill--sm" onClick={() => { setOpen(false); openDialog(); }}>Sign in</button>}
         </nav>
         <Pill to="/arena" variant="solid" small arrow>Play now</Pill>

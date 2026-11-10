@@ -15,7 +15,7 @@ type Msg =
   | { id: number; kind: "guardian"; text: string; live: boolean }
   | { id: number; kind: "tool"; name: string; args: Record<string, unknown>; result?: "ok" | "refused" | "failed" }
   | { id: number; kind: "blocked"; tool: string; args: Record<string, unknown>; reason: string }
-  | { id: number; kind: "won"; amount: string; tx: string }
+  | { id: number; kind: "won"; amount: string; tx: string; pool?: boolean }
   | { id: number; kind: "note"; text: string; tone?: "error" };
 
 type Phase = "idle" | "starting" | "live" | "sending" | "ended" | "won" | "expired";
@@ -34,6 +34,7 @@ export default function GuardianPage() {
   const [turnsUsed, setTurnsUsed] = useState(0);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState("");
+  const [viaPool, setViaPool] = useState(false);
   const [startErr, setStartErr] = useState<{ message: string; status: number } | null>(null);
   const [potNote, setPotNote] = useState<string | null>(null);
   const [prove, setProve] = useState(false);
@@ -70,9 +71,9 @@ export default function GuardianPage() {
     if (!auth.token) { auth.openDialog(); return; }
     setStartErr(null); setPhase("starting");
     try {
-      const r = await api<{ session_id: string; turns_max: number; expires_at: string; fee: string; resumed: boolean }>(`/guardians/${id}/play`, { method: "POST", body: {}, token: auth.token });
+      const r = await api<{ session_id: string; turns_max: number; expires_at: string; fee: string; resumed: boolean; via_pool?: boolean }>(`/guardians/${id}/play`, { method: "POST", body: {}, token: auth.token });
       setSession({ id: r.session_id, turnsMax: r.turns_max, expiresAt: Number(r.expires_at), fee: r.fee });
-      setTurnsUsed(0); setMsgs([]); setPhase("live"); auth.refresh(); reload();
+      setViaPool(!!r.via_pool); setTurnsUsed(0); setMsgs([]); setPhase("live"); auth.refresh(); reload();
       if (r.resumed) {
         const s = await api<{ session: { turns: number }; turns: { role: string; content: string }[] }>(`/sessions/${r.session_id}`).catch(() => null);
         if (s) { setTurnsUsed(s.session.turns); setMsgs(s.turns.filter((t) => t.role === "user" || t.role === "assistant").map((t) => ({ id: ++seq.current, kind: t.role === "user" ? "user" : "guardian", text: t.content, live: false } as Msg))); }
@@ -97,11 +98,11 @@ export default function GuardianPage() {
       case "tool_result":
         setMsgs((cur) => { const i = [...cur].reverse().findIndex((m) => m.kind === "tool" && m.result === undefined); if (i < 0) return cur; const at = cur.length - 1 - i; const m = cur[at] as Extract<Msg, { kind: "tool" }>; const copy = cur.slice(); copy[at] = { ...m, result: e.data.ok ? "ok" : "refused" }; return copy; }); break;
       case "blocked": push({ kind: "blocked", tool: e.data.tool, args: e.data.args, reason: e.data.chain_error }); break;
-      case "won": { push({ kind: "won", amount: e.data.payout ?? potAtWin.current, tx: e.data.tx }); setPhase("won"); auth.refresh(); reload(); break; }
+      case "won": { push({ kind: "won", amount: e.data.payout ?? potAtWin.current, tx: e.data.tx, pool: viaPool }); setPhase("won"); auth.refresh(); reload(); break; }
       case "session_closed": { setPhase("ended"); push({ kind: "note", text: "Attempt over. The Guardian held, and your entry fee joined the pot." }); auth.refresh(); reload(); break; }
       case "error": push({ kind: "note", text: e.data.message, tone: "error" }); break;
     }
-  }, [push, auth, reload]);
+  }, [push, auth, reload, viaPool]);
 
   const send = async (ev?: FormEvent) => {
     ev?.preventDefault();
@@ -227,8 +228,8 @@ function Bubble({ m, cfg }: { m: Msg; cfg: import("../lib/api").AppConfig | null
       return (
         <div className="won" role="status">
           <small>Vault opened</small>
-          <strong>Pot released: {near(m.amount, 2)} NEAR to you</strong>
-          <span>Paid by the vault contract, not by the AI · tx <TxLink tx={m.tx} cfg={cfg} /></span>
+          <strong>Pot released: {near(m.amount, 2)} NEAR {m.pool ? "to your pool" : "to you"}</strong>
+          <span>{m.pool ? "Split by contribution on the Swarms page · " : ""}Paid by the vault contract, not by the AI · tx <TxLink tx={m.tx} cfg={cfg} /></span>
         </div>
       );
     case "note": return <p className={`note ${m.tone === "error" ? "note--error" : ""}`}>{m.tone === "error" && <span className="dot dot--red" />} {m.text}</p>;

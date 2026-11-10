@@ -1,0 +1,32 @@
+/* agents */
+.agents { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(260px, 0.7fr); gap: clamp(24px, 4vw, 64px); align-items: start; }
+.agents__main { display: grid; gap: 22px; }
+.agents__note { border: 1px solid var(--ink); border-radius: 22px; padding: 22px; display: grid; gap: 10px; position: sticky; top: calc(var(--nav-h) + 16px); }
+.agents__note h3 { font-weight: 300; font-size: 26px; line-height: 1.15; letter-spacing: -.02em; } .agents__note p { font-size: 14px; color: var(--ink-2); }
+.keybox { border: 1.5px solid var(--ink); border-radius: 22px; padding: 20px; display: grid; gap: 12px; animation: noteIn .4s var(--ease) both; }
+.code { margin: 0; background: #0a0a0a; color: #e9ecf4; border-radius: 16px; padding: 16px 18px; font: 12.5px/1.6 var(--mono); overflow-x: auto; white-space: pre; }
+.table__row--keys { grid-template-columns: minmax(0, 1.4fr) 1fr 1fr 110px 130px; }
+.table__row--keys.is-revoked { opacity: .5; }
+.tag { margin-left: 8px; font-style: normal; font-size: 11px; background: #eee; border-radius: 999px; padding: 2px 9px; }
+.rowact { display: flex; gap: 14px; justify-content: flex-end; }
+@media (max-width: 960px) { .agents { grid-template-columns: 1fr; } .agents__note { position: static; order: -1; } .table__row--keys { grid-template-columns: 1fr 1fr; } }
+
+/* proofs */
+.proofs-how { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.proofs-how > div { border: 1px solid var(--hair); background: #fff; border-radius: 20px; padding: 20px; } .proofs-how b { font-weight: 600; } .proofs-how p { font-size: 14px; color: var(--ink-2); margin-top: 6px; }
+.table__row--proofs { grid-template-columns: minmax(0, 1.4fr) 1fr 70px 110px 130px; }
+.proofs-wait { display: grid; gap: 14px; }
+.proofs-head { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; align-items: end; margin-bottom: 18px; }
+.proofs-head__meta { display: flex; gap: clamp(16px, 3vw, 40px); flex-wrap: wrap; } .proofs-head__meta small { display: block; font-size: 12px; color: var(--muted); }
+.mono { font-family: var(--mono); font-size: 12.5px; }
+.verdict { border-radius: 22px; padding: 20px 24px; display: grid; gap: 6px; margin-bottom: 18px; background: #fff; border: 1px solid var(--hair); }
+.verdict b { font-weight: 400; font-size: 20px; } .verdict span { font-size: 14px; color: var(--ink-2); max-width: 90ch; }
+.verdict--pass { background: var(--ink); color: #fafafa; border-color: var(--ink); } .verdict--pass span { color: rgba(250,250,250,.75); }
+.verdict--fail { border-color: var(--red); }
+.checks { display: grid; gap: 12px; list-style: none; }
+.check { border: 1px solid var(--hair); background: #fff; border-radius: 20px; padding: 18px 20px; display: grid; gap: 6px; }
+.check__head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; } .check__head b { font-weight: 600; font-size: 14.5px; flex: 1; min-width: 240px; } .check__id { font-family: var(--mono); color: var(--muted); font-size: 12px; }
+.check p { font-size: 13.5px; } .check details { font-size: 13px; } .check summary { cursor: pointer; color: var(--ink-2); } .check ul { margin: 8px 0 0 18px; list-style: disc; display: grid; gap: 3px; color: var(--ink-2); overflow-wrap: anywhere; }
+.badge { border-radius: 999px; padding: 4px 12px; font: 600 11px var(--mono); letter-spacing: .12em; }
+.badge--pass { background: var(--ink); color: #fafafa; } .badge--fail { background: var(--red); color: #fff; } .badge--skip { background: #eee; color: var(--ink-2); }
+@media (max-width: 760px) { .proofs-how { grid-template-columns: 1fr; } .table__row--proofs { grid-template-columns: 1fr 1fr; } }

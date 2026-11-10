@@ -1,0 +1,16 @@
+/* my guardians + shared blocks/tables */
+.me-bar { display: flex; align-items: center; gap: 16px; margin: -18px 0 22px; font-size: 13px; }
+.display--sm { font-size: clamp(26px, 3vw, 38px); }
+.statrow--3 { grid-template-columns: repeat(3, 1fr); }
+.block { margin-top: clamp(40px, 6vw, 84px); display: grid; gap: 18px; }
+.block__head { display: flex; justify-content: space-between; align-items: end; gap: 16px; flex-wrap: wrap; }
+.cards--sm { grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); }
+.owned { display: grid; gap: 10px; }
+.owned__bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; border: 1px solid var(--hair); background: #fff; border-radius: 18px; padding: 12px 16px; }
+.owned__bar small { display: block; font-size: 12px; color: var(--muted); } .owned__bar strong { font-weight: 300; font-size: 22px; letter-spacing: -.02em; }
+.table { border-top: 1px solid var(--hair); }
+.table__row { display: grid; grid-template-columns: minmax(0, 1.4fr) 1fr 70px 110px 150px; gap: 12px; align-items: center; padding: 14px 4px; border-bottom: 1px solid var(--hair); font-size: 14px; }
+.table__row--head { font-size: 12px; color: var(--muted); padding-top: 10px; }
+.table__row a { text-decoration: underline; text-underline-offset: 3px; }
+.res--won { font-weight: 600; }
+@media (max-width: 760px) { .statrow--3 { grid-template-columns: 1fr; } .table__row { grid-template-columns: 1fr 1fr; } .table__row--head { display: none; } }

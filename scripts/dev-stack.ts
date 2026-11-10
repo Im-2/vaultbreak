@@ -26,14 +26,16 @@ const log = (m: string) => console.log(`[dev] ${m}`);
 log("starting local NEAR sandbox…");
 const ctx = await startSandbox();
 const keysDir = mkdtempSync(`${tmpdir()}/vb-dev-keys-`);
-const reg = await deployRegistry(ctx, { baseUri: `http://localhost:5173/api` });
+// Every NFT reference points at PUBLIC_BASE_URL (the Vercel domain when deployed), so links keep working when the tunnel URL changes.
+const publicBase = (process.env.PUBLIC_BASE_URL ?? "http://localhost:5173").replace(/\/+$/, "");
+const reg = await deployRegistry(ctx, { baseUri: `${publicBase}/api` });
 const pool = await deployPool(ctx, reg.id);
 log(`registry ${reg.id}, pool ${pool.id}`);
 
 const cfg = { ...loadConfig(), rpcUrl: ctx.rpcUrl, keysDir, registry: reg.id, pool: pool.id, dbPath: ":memory:" };
 const db = openDb(":memory:");
 const pkey = promptKey(keysDir);
-const custodial = { funderId: ctx.root.accountId, funderSecret: DEFAULT_PRIVATE_KEY, fundNear: 5 };
+const custodial = { funderId: ctx.root.accountId, funderSecret: DEFAULT_PRIVATE_KEY, fundNear: 10 };
 const seedApp = createApp({ db, cfg: { ...cfg, llm: { ...cfg.llm, provider: "mock", model: "mock" } }, llm: new MockLlm(), pkey, custodial }).app; // scripted model for seeding only
 const live = createApp({ db, cfg, llm: makeLlm(cfg), pkey, custodial, ui: { demo: true } });
 
@@ -74,7 +76,8 @@ for (const d of DEMO) {
   const gkey = JSON.parse(readFileSync(`${keysDir}/guardian-${vault}.json`, "utf8")).private_key;
   const guardian = accountFrom(vault, ctx.rpcUrl, gkey);
   let blockedLeft = d.blocked;
-  for (let i = 0; i < d.attempts; i++) {
+  const scale = process.env.SEED_LITE ? 0.15 : 1; // SEED_LITE=1: quick start for UI development
+  for (let i = 0; i < Math.round(d.attempts * scale); i++) {
     const a = seeders[i % seeders.length].acct;
     const sid = String(await retryTransport(() => a.callFunction({ contractId: vault, methodName: "start_session", args: {}, deposit: BigInt(Math.round(d.fee * 1e6)) * 10n ** 18n })));
     const b = blockedLeft > 0 && i % 3 === 0 ? 1 : 0; blockedLeft -= b;

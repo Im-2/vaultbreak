@@ -10,6 +10,10 @@ import "./styles/base.css";
 import "./styles/components.css";
 import "./styles/pages.css";
 import "./styles/guardian.css";
+import "./styles/create.css";
+import "./styles/me.css";
+import "./styles/swarms.css";
+import "./styles/agents.css";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode><BrowserRouter><App /></BrowserRouter></StrictMode>,

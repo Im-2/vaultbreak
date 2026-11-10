@@ -77,6 +77,13 @@ pub struct PoolView {
     pub contributors: u32,
 }
 
+#[near(serializers = [json])]
+pub struct ContributionView {
+    pub account: AccountId,
+    pub amount: U128,
+    pub claimed: bool,
+}
+
 /// The subset of the vault's `get_session` view that the pool reads.
 #[near(serializers = [json])]
 pub struct VaultSession {
@@ -318,6 +325,10 @@ impl PoolContract {
     // ------------------------------------------------------------------ views
     pub fn get_pool(&self, pool_id: U64) -> Option<PoolView> {
         self.pools.get(&pool_id.0).map(view)
+    }
+    /// Contributors of a pool (account, amount, claimed), up to 100. Lets UIs draw contribution bars.
+    pub fn list_contributions(&self, pool_id: U64) -> Vec<ContributionView> {
+        self.pools.get(&pool_id.0).map(|p| p.contributions.iter().take(100).map(|(a, c)| ContributionView { account: a.clone(), amount: U128(c.amount), claimed: c.claimed }).collect()).unwrap_or_default()
     }
     pub fn get_contribution(&self, pool_id: U64, account_id: AccountId) -> Option<Contribution> {
         self.pools.get(&pool_id.0).and_then(|p| p.contributions.get(&account_id).cloned())

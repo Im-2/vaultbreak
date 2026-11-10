@@ -70,6 +70,21 @@ proptest! {
 
 // ---------------------------------------------------------------- creation + contribution rules
 #[test]
+fn list_contributions_returns_each_contributor_once() {
+    let mut p = fresh();
+    let id = open(&mut p, None);
+    contribute(&mut p, id, "bob.test", NEAR);
+    contribute(&mut p, id, "carol.test", 2 * NEAR);
+    contribute(&mut p, id, "bob.test", NEAR);
+    let mut l = p.list_contributions(id);
+    l.sort_by(|a, b| a.account.cmp(&b.account));
+    assert_eq!(l.len(), 2);
+    assert_eq!((l[0].account.as_str(), l[0].amount.0), ("bob.test", 2 * NEAR));
+    assert_eq!((l[1].account.as_str(), l[1].amount.0), ("carol.test", 2 * NEAR));
+    assert!(p.list_contributions(U64(99)).is_empty());
+}
+
+#[test]
 fn create_pool_validates_inputs() {
     let mut p = fresh();
     testing_env!(ctx("alice.test", 0, 1).build());

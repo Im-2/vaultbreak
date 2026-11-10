@@ -24,6 +24,10 @@ export interface Config {
   llm: LlmConfig;
   /** NEAR AI Cloud settings, used by the verification/privacy layer regardless of the inference provider. */
   nearai: { baseUrl: string; apiKey: string | undefined };
+  /** Permanent public origin of the website (the Vercel domain). Used for every NFT reference/media link and for CORS. */
+  publicBaseUrl: string;
+  /** Abuse protection for the public API (per-IP; local requests without proxy headers are exempt). */
+  limits: { disabled: boolean; perMinute: number; chatPerMinute: number; chatPerDay: number; signinPerHour: number; accountsPerIpPerHour: number; modelDailyCap: number; messageMaxChars: number };
   /** Layer 4: the swarm pool contract. */
   pool: string | undefined;
   /** Layer 3: the registry/factory contract account (NFT guardians). */
@@ -71,6 +75,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     nearai,
     registry: env.REGISTRY_ACCOUNT_ID || undefined,
     pool: env.POOL_ACCOUNT_ID || undefined,
+    publicBaseUrl: (env.PUBLIC_BASE_URL ?? "http://localhost:5173").replace(/\/+$/, ""),
+    limits: {
+      disabled: env.RATE_LIMIT_OFF === "1",
+      perMinute: Number(env.RL_PER_MINUTE ?? 240), chatPerMinute: Number(env.RL_CHAT_PER_MINUTE ?? 12), chatPerDay: Number(env.RL_CHAT_PER_DAY ?? 150),
+      signinPerHour: Number(env.RL_SIGNIN_PER_HOUR ?? 30), accountsPerIpPerHour: Number(env.RL_ACCOUNTS_PER_IP_HOUR ?? 6),
+      modelDailyCap: Number(env.MODEL_DAILY_CAP ?? 1500), messageMaxChars: Number(env.MESSAGE_MAX_CHARS ?? 1000),
+    },
     privacy: { capture: provider === "nearai" || env.PRIVACY_CAPTURE === "1" },
   };
 }

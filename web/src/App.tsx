@@ -11,6 +11,11 @@ import { Pill } from "./components/Pill";
 import Landing from "./pages/Landing";
 import Arena from "./pages/Arena";
 import GuardianPage from "./pages/GuardianPage";
+import Create from "./pages/Create";
+import Me from "./pages/Me";
+import Swarms from "./pages/Swarms";
+import Agents from "./pages/Agents";
+import Proofs from "./pages/Proofs";
 
 function ComingNext({ title }: { title: string }) {
   return (
@@ -40,12 +45,12 @@ export default function App() {
           <Route path="/" element={<Landing />} />
           <Route path="/arena" element={<Arena />} />
           <Route path="/guardian/:id" element={<GuardianPage />} />
-          <Route path="/create" element={<ComingNext title="Create a Guardian" />} />
-          <Route path="/me" element={<ComingNext title="My Guardians" />} />
-          <Route path="/swarms" element={<ComingNext title="Swarms" />} />
-          <Route path="/agents" element={<ComingNext title="Agents" />} />
-          <Route path="/proofs" element={<ComingNext title="Proofs" />} />
-          <Route path="/proofs/:session" element={<ComingNext title="Proof walkthrough" />} />
+          <Route path="/create" element={<Create />} />
+          <Route path="/me" element={<Me />} />
+          <Route path="/swarms" element={<Swarms />} />
+          <Route path="/agents" element={<Agents />} />
+          <Route path="/proofs" element={<Proofs />} />
+          <Route path="/proofs/:session" element={<Proofs />} />
           <Route path="*" element={<ComingNext title="Page not found" />} />
         </Routes>
         <Footer />
