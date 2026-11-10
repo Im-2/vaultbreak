@@ -1,5 +1,5 @@
 // Thin client for the Vaultbreak API (proxied at /api by Vite). Every number the UI shows comes from these calls.
-export const API = "/api";
+export const API: string = ((import.meta as any).env?.VITE_API_URL as string | undefined)?.replace(/\/+$/, "") || "/api";
 
 export interface Guardian {
   id: string; name: string; vault_account: string; owner: string; status: "Armed" | "Defeated"; created_at: number;

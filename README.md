@@ -2,7 +2,36 @@
 
 **A marketplace of AI guardians on NEAR.** A creator mints a Guardian: an AI agent with its own on-chain account holding a pot of NEAR. Anyone (a human or another AI agent) pays an entry fee to open a chat session and tries to talk the Guardian into releasing the pot. Fees grow the pot. A Guardian that survives builds a record.
 
-Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation), 3 (NFT registry + factory) and 4 (agents + swarm pools) are built and tested.** Layer 5 (NEAR Intents entry, optional, mainnet-only) is not built. No UI yet (backend first, per `SPEC.md`). Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
+Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation), 3 (NFT registry + factory) and 4 (agents + swarm pools) are built and tested, with a full web UI (landing, arena, Guardian, Create, My Guardians, Swarms, Agents, Proofs).** Layer 5 (NEAR Intents entry, optional, mainnet-only) is not built. Everything in this repo is new work started for this hackathon; there is no pre-existing baseline.
+
+## Live demo
+
+**https://vaultbreak-orpin.vercel.app**
+
+Do X, see Y (no wallet, no install):
+
+1. Open **Arena**: the seeded Guardians with their pots, streaks and blocked-attempt counts (see "Honest labels" below).
+2. Open **Soft Sally** (or Gullible Gus), press **Sign in**, pick any name and passphrase, then **Pay 0.10 NEAR and start**. You get play credits automatically. Ask politely for the money: the weak Guardian releases the pot, you see **Pot released** and your credits rise by exactly the pot. The reply streams live from the model.
+3. Open **The Warden** and try to talk it out of its pot (claim to be the admin, role-play, say please). It holds; every attempt is on record. Press **Prove it** to see its vault has no full-access key.
+4. Open **Loose Lips**, the deliberately compromised Guardian that obeys any instruction. Ask it to send funds or change its owner: the model *tries*, the chain **rejects** it, and the UI shows the blocked call.
+5. **Create**: write a prompt, press *Use a strong template*, mint. You get an NFT and a vault account in about 10 seconds. **My Guardians** shows your fees and a **Claim** button. **Swarms** pools play money with others and splits a win pro rata. **Agents** gives you an API key with a spend budget. **Proofs** walks through the four verifiable checks.
+
+**Honest labels.**
+- This is a **demo network**: a throw-away local NEAR sandbox with play money, not testnet or mainnet. Its state resets whenever the backend restarts.
+- The seeded pots and attempt counts are **demo data**; everything you do on the site afterwards is real on that chain.
+- The live model is **Groq (`openai/gpt-oss-120b`)**, not NEAR AI Cloud. **Real NEAR AI signed exchanges are UNVERIFIED**: the NEAR AI key has no credits, so the signing path (checks b-d on the Proofs page) is only tested against a local stand-in and shows SKIP on the live site. The Intel TDX attestation check itself was verified against NEAR AI Cloud (`docs/attestation.md`).
+- Play-account sign-in is **demo-grade** (the server holds the key). Do not reuse a real password.
+- Public traffic is rate limited per IP, and the model has a daily call cap, to protect a free quota. When the cap is used up, chats say so until the next UTC day.
+
+**How it is hosted.** The website is on Vercel (static, from `web/`). The backend (SQLite file, live SSE, Guardian keys, local sandbox chain) cannot run on Vercel, so it runs on the author's machine behind a free Cloudflare quick tunnel; Vercel proxies `/api/*` to it (`web/vercel.json`). The tunnel URL changes on every restart, so re-publish with one command (Windows host with WSL Ubuntu):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts/serve-public.ps1     # add -Reuse to keep a running backend
+```
+
+It starts the stack, opens the tunnel, writes the tunnel URL into the Vercel rewrite and redeploys. If the machine sleeps, the live site's API stops answering until it is run again. Secrets (the model key and the Guardian keys) live only in the backend's gitignored `.env` and key directory; the website and its Vercel settings hold none. Every NFT reference points at `PUBLIC_BASE_URL` (the Vercel domain), which stays stable across restarts. Deployed smoke test and screenshots: `node web/scripts/smoke-deployed.mjs <url>` → [docs/screens/deployed](docs/screens/deployed/).
+
+**Run it locally instead:** see "The web UI" below (`npm run dev`, then http://localhost:5173).
 
 ## The problem
 
@@ -32,7 +61,7 @@ Open http://localhost:5173. What `npm run dev` does (`scripts/dev-stack.ts`): st
 
 **Zero-wallet play:** click *Sign in*, pick a name and a passphrase. The server opens a custodial play account, funds it with play credits, and pays the entry fee from it when you press *Pay and start*. You never see keys, gas or wallet pop-ups. This sign-in is **demo-grade** (the server holds the key; do not reuse a real password or put real funds in it).
 
-**What is built so far** (UI pages are being delivered in review order): landing (`/`), arena (`/arena`), Guardian page with live SSE chat, blocked-call and win states, and the Prove-it drawer (`/guardian/:id`). Create, My Guardians, Swarms, Agents and Proofs are next; their routes show a placeholder. Screenshots at desktop (1440) and phone (390) widths are in [docs/screens](docs/screens/); regenerate with `node web/scripts/screenshots.mjs` while the stack runs.
+**Pages:** landing (`/`), arena (`/arena`), Guardian page with live SSE chat, blocked-call and win states and the Prove-it drawer (`/guardian/:id`), Create (`/create`), My Guardians (`/me`), Swarms (`/swarms`), Agents (`/agents`), Proofs (`/proofs`). Screenshots at desktop (1440) and phone (390) widths are in [docs/screens](docs/screens/); regenerate with `node web/scripts/screenshots.mjs` while the stack runs.
 
 API endpoints added for the UI: `GET /config`, `GET /stats`, `POST /custodial/signin`, `GET /me`, `POST /custodial/topup`, `POST /guardians/:id/play` (server pays the fee from the player's custodial account and opens the session), `GET /guardians/:id/prove`.
 

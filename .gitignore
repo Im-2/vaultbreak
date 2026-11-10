@@ -10,3 +10,4 @@ ui/reference-frames/
 web/node_modules/
 web/dist/
 ui/nfts/lineup.png
+.serve/
