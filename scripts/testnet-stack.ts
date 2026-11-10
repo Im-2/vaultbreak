@@ -15,6 +15,7 @@ import { createApp } from "../server/src/app.ts";
 import { startIndexer, syncAll } from "../server/src/indexer.ts";
 import { accountFrom, NEAR, retryTransport } from "../server/src/chain.ts";
 import { VaultbreakClient } from "../sdk/src/index.ts";
+import { restoreIfEmpty, startBackups } from "../server/src/backup.ts";
 
 const FUNDER = process.env.TESTNET_FUNDER ?? "vbreak-t2funder-1109.testnet";
 const CREATOR = process.env.TESTNET_CREATOR ?? "vbreak-t2creator-1109.testnet";
@@ -24,9 +25,15 @@ const RPC = process.env.NEAR_RPC_URL ?? "https://test.rpc.fastnear.com,https://n
 const DATA = process.env.TESTNET_DATA_DIR ?? ".testnet-data";
 const PORT = Number(process.env.PORT ?? 8787);
 const log = (m: string) => console.log(`[testnet] ${m}`);
-const key = (id: string): string => JSON.parse(readFileSync(`.keys/${id}.json`, "utf8")).private_key;
+// Account keys: from .keys/<id>.json on a developer machine, or from secret env vars on a host (TESTNET_FUNDER_KEY / TESTNET_CREATOR_KEY).
+const key = (id: string): string => {
+  const envKey = id === FUNDER ? process.env.TESTNET_FUNDER_KEY : id === CREATOR ? process.env.TESTNET_CREATOR_KEY : undefined;
+  if (envKey) return envKey;
+  return JSON.parse(readFileSync(`.keys/${id}.json`, "utf8")).private_key;
+};
 
 process.env.PUBLIC_BASE_URL ??= "https://tryvaultbreak.vercel.app";
+await restoreIfEmpty(DATA, log); // a host with a wiped disk recovers the encrypted off-site backup before anything opens the database
 mkdirSync(`${DATA}/keys`, { recursive: true });
 const cfg = { ...loadConfig(), rpcUrl: RPC, registry: REGISTRY, pool: POOL, dbPath: `${DATA}/vaultbreak.db`, keysDir: `${DATA}/keys` };
 const db = openDb(cfg.dbPath);
@@ -107,6 +114,7 @@ await syncAll(db, cfg).catch((e) => log(`sync: ${String(e).slice(0, 100)}`));
 log("ready");
 
 startIndexer(db, cfg, 20000);
+startBackups(DATA, log);
 serve({ fetch: live.app.fetch, port: PORT });
 console.log(`\n  Vaultbreak demo backend is up (NEAR testnet · play money)\n  API  http://localhost:${PORT}   (model: ${cfg.llm.provider === "mock" ? "scripted mock" : `${cfg.llm.provider} / ${cfg.llm.model}`})\n  registry ${REGISTRY} · pool ${POOL} · state in ${DATA}/\n`);
 void NEAR; void existsSync;

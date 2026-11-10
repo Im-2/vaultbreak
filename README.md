@@ -30,6 +30,8 @@ Do X, see Y, tab by tab:
 - Models are stochastic: a strong Guardian can in principle be talked into releasing, and a weak one is meant to be. The vault, not the AI, limits the damage.
 - Play money is finite: new play accounts stop when the faucet account runs low, top-ups are capped per player, sign-ups are rate limited per IP, and the model has a daily call cap.
 
+**When the author's computer is off:** NFT metadata links (`/api/guardians/:id/metadata.json`) keep working from saved snapshots (Vercel function + Vercel Blob), and the site shows a "backend offline" banner; live data, chats and sign-in come back when the backend is restarted. The backend's state is backed up encrypted off-site and restored on boot. See [docs/hosting.md](docs/hosting.md) for the host options and what is still manual.
+
 **How it is hosted.** The website is on Vercel (static, `web/`). The backend (SQLite file, live SSE, Guardian keys) cannot run on Vercel, so it runs on the author's computer behind a free Cloudflare quick tunnel; Vercel proxies `/api/*` to it (`web/vercel.json`). If that computer sleeps, the API stops answering (the pages still load); the tunnel URL changes on every restart. Re-publish with one command (Windows + WSL Ubuntu):
 
 ```powershell

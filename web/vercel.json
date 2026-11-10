@@ -10,7 +10,7 @@
     },
     {
       "source": "/api/:path*",
-      "destination": "https://pod-cache-net-loaded.trycloudflare.com/:path*"
+      "destination": "https://birth-arrival-pine-blair.trycloudflare.com/:path*"
     },
     {
       "source": "/((?!assets/|api/).*)",

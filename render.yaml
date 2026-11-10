@@ -1,0 +1,16 @@
+# Render blueprint (free web service). Secrets are entered once in the Render dashboard (sync: false), never committed.
+services:
+  - type: web
+    name: vaultbreak-backend
+    runtime: docker
+    plan: free
+    healthCheckPath: /stats
+    envVars:
+      - { key: PORT, value: "8787" }
+      - { key: PUBLIC_BASE_URL, value: https://tryvaultbreak.vercel.app }
+      - { key: MODEL_PROVIDER, value: groq }
+      - { key: MODEL_NAME, value: openai/gpt-oss-120b }
+      - { key: MODEL_API_KEY, sync: false }          # Groq key
+      - { key: BLOB_READ_WRITE_TOKEN, sync: false }  # Vercel Blob (metadata snapshots + encrypted state backup)
+      - { key: BACKUP_PASSPHRASE, sync: false }      # decrypts the state backup
+      - { key: TESTNET_FUNDER_KEY, sync: false }     # the faucet account's key (funds new play accounts)

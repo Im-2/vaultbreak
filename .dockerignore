@@ -1,0 +1,10 @@
+node_modules
+.env
+.keys
+.testnet-data
+.serve
+web
+contracts/*/target
+docs/screens
+ui
+.git
