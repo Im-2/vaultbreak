@@ -120,11 +120,11 @@ const scenarios = {
     await goto(lead.page, "/swarms");
     const exampleVisible = await lead.page.getByText(/How a swarm works/).count();
     await signInOnPage(lead.page, `lead${rand()}`);
-    await lead.page.locator("select").selectOption({ label: /Gullible Gus/ }).catch(async () => {
-      const v = await lead.page.locator("select option").evaluateAll((os) => os.find((o) => /Gullible Gus|Kind Kaylee|Soft Sally/.test(o.textContent))?.value); await lead.page.locator("select").selectOption(v);
-    });
+    { const v = await lead.page.locator("select option").evaluateAll((os) => os.find((o) => /Kind Kaylee|Gullible Gus|Soft Sally/.test(o.textContent))?.value); await lead.page.locator("select").selectOption(v); }
+    const before = await lead.page.locator(".plist__item").count();
     await lead.page.getByRole("button", { name: /Open the pool/ }).click();
-    await lead.page.getByText(/Open for contributions/).first().waitFor({ timeout: 90000 });
+    await lead.page.waitForFunction((n) => document.querySelectorAll(".plist__item").length > n, before, { timeout: 90000 });
+    await lead.page.locator(".plist__item").first().click(); await sleep(2500);
     await lead.page.locator('input[aria-label="Amount in NEAR"]').fill("1"); await lead.page.getByRole("button", { name: "Contribute", exact: true }).click(); await sleep(8000);
     // a second player joins the pool through the UI
     await goto(mate.page, "/swarms"); await signInOnPage(mate.page, `mate${rand()}`);

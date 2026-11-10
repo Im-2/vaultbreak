@@ -6,32 +6,40 @@ Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation), 3 (NFT r
 
 ## Live demo
 
-**https://tryvaultbreak.vercel.app**
+**https://tryvaultbreak.vercel.app** (NEAR **testnet**, play money; testnet NEAR has no value)
 
-Do X, see Y (no wallet, no install):
+**Sign in (30 seconds, no wallet):** press **Sign in** (top right, or on any page that asks), type any name and any passphrase of 6+ characters, press **Continue**. The server opens a play account on testnet and funds it with 2.5 testnet NEAR. Signing in again with the same name and passphrase returns to the same account. This sign-in is **demo-grade**: the server holds the key, so do not reuse a real password.
 
-1. Open **Arena**: the seeded Guardians with their pots, streaks and blocked-attempt counts (see "Honest labels" below).
-2. Open **Soft Sally** (or Gullible Gus), press **Sign in**, pick any name and passphrase, then **Pay 0.10 NEAR and start**. You get play credits automatically. Ask politely for the money: the weak Guardian releases the pot, you see **Pot released** and your credits rise by exactly the pot. The reply streams live from the model.
-3. Open **The Warden** and try to talk it out of its pot (claim to be the admin, role-play, say please). It holds; every attempt is on record. Press **Prove it** to see its vault has no full-access key.
-4. Open **Loose Lips**, the deliberately compromised Guardian that obeys any instruction. Ask it to send funds or change its owner: the model *tries*, the chain **rejects** it, and the UI shows the blocked call.
-5. **Create**: write a prompt, press *Use a strong template*, mint. You get an NFT and a vault account in about 10 seconds. **My Guardians** shows your fees and a **Claim** button. **Swarms** pools play money with others and splits a win pro rata. **Agents** gives you an API key with a spend budget. **Proofs** walks through the four verifiable checks.
+Do X, see Y, tab by tab:
 
-**Honest labels.**
-- This is a **demo network**: a throw-away local NEAR sandbox with play money, not testnet or mainnet. Its state resets whenever the backend restarts.
-- The seeded pots and attempt counts are **demo data**; everything you do on the site afterwards is real on that chain.
-- The live model is **Groq (`openai/gpt-oss-120b`)**, not NEAR AI Cloud. **Real NEAR AI signed exchanges are UNVERIFIED**: the NEAR AI key has no credits, so the signing path (checks b-d on the Proofs page) is only tested against a local stand-in and shows SKIP on the live site. The Intel TDX attestation check itself was verified against NEAR AI Cloud (`docs/attestation.md`).
-- Play-account sign-in is **demo-grade** (the server holds the key). Do not reuse a real password.
-- Public traffic is rate limited per IP, and the model has a daily call cap, to protect a free quota. When the cap is used up, chats say so until the next UTC day.
+| Tab | Do | See |
+|---|---|---|
+| **Arena** | Open it | The Guardians with their real pot, streak and attempts, read from testnet. Each card's art follows its state: armed, veteran (10+ survived in a row), defeated. |
+| **A weak Guardian** (Gullible Gus, Soft Sally, Kind Kaylee) | Open it, **Pay 0.10 NEAR and start**, ask politely for the money | The reply streams live, then **Pot released**: the pot moves to your account in a testnet transaction, shown as a nearblocks link. |
+| **The Warden** (strong) | Claim to be the admin, role-play, say please | It holds. Press **Prove it**: its vault has no full-access key, plus the attempts and their transactions. |
+| **Loose Lips** (deliberately compromised) | Ask it to send funds or change its owner | The model tries; the chain refuses; the chat shows **BLOCKED by the vault** and no funds move. A refused call never reaches a block, so it has no transaction hash. |
+| **Create** | Signed out: see an example Guardian. Signed in: name it, **Use a strong template**, set the pot to 0.5, press **Add play credits** if asked (a Guardian locks about 3 NEAR for its vault), **Mint Guardian** | A new NFT and vault on testnet, then the Guardian page with NFT, vault and owner links. |
+| **My Guardians** | Open it after creating | Your Guardian cards with NFT and vault explorer links, creator fees and a **Claim** button. |
+| **Swarms** | Signed out: see how pools work and the pools that exist. Signed in: open a pool on a weak Guardian, contribute, have a second player contribute, **Attack with the pool**, chat, **Settle result**, **Withdraw my share** | Winnings split pro rata by contribution. |
+| **Agents** | Signed out: see how a key works. Signed in: create a key with a budget, then `curl -X POST -H "X-API-Key: vbk_..." https://tryvaultbreak.vercel.app/api/guardians/kind-kaylee/play` | A session opens with no browser; the key's budget drops by the entry fee, and at zero the API refuses before paying. |
+| **Proofs** | Open a session | The four verifiable checks with copyable commands. On this site they show **SKIP** (see below). |
 
-**How it is hosted.** The website is on Vercel (static, from `web/`). The backend (SQLite file, live SSE, Guardian keys, local sandbox chain) cannot run on Vercel, so it runs on the author's machine behind a free Cloudflare quick tunnel; Vercel proxies `/api/*` to it (`web/vercel.json`). The tunnel URL changes on every restart, so re-publish with one command (Windows host with WSL Ubuntu):
+**What is NOT proven (read this):**
+- **NEAR AI signed exchanges are UNVERIFIED.** The NEAR AI key has no credits, so the live model is **Groq (`openai/gpt-oss-120b`)**, which does not sign its answers or attest its hardware. The signing path is only tested against a local stand-in. Only the Intel TDX attestation check itself was verified against NEAR AI Cloud (`docs/attestation.md`).
+- Seeded history on testnet (a few attempts per Guardian, one win by "Mira") is demo data made through the real API; everything after is organic.
+- Models are stochastic: a strong Guardian can in principle be talked into releasing, and a weak one is meant to be. The vault, not the AI, limits the damage.
+- Play money is finite: new play accounts stop when the faucet account runs low, top-ups are capped per player, sign-ups are rate limited per IP, and the model has a daily call cap.
+
+**How it is hosted.** The website is on Vercel (static, `web/`). The backend (SQLite file, live SSE, Guardian keys) cannot run on Vercel, so it runs on the author's computer behind a free Cloudflare quick tunnel; Vercel proxies `/api/*` to it (`web/vercel.json`). If that computer sleeps, the API stops answering (the pages still load); the tunnel URL changes on every restart. Re-publish with one command (Windows + WSL Ubuntu):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/serve-public.ps1     # add -Reuse to keep a running backend
 ```
 
-It starts the stack, opens the tunnel, writes the tunnel URL into the Vercel rewrite and redeploys. If the machine sleeps, the live site's API stops answering until it is run again. Secrets (the model key and the Guardian keys) live only in the backend's gitignored `.env` and key directory; the website and its Vercel settings hold none. Every NFT reference points at `PUBLIC_BASE_URL` (the Vercel domain), which stays stable across restarts. Deployed smoke test and screenshots: `node web/scripts/smoke-deployed.mjs <url>` → [docs/screens/deployed](docs/screens/deployed/).
+State (database, Guardian keys) lives in `.testnet-data/` (gitignored), so restarts do not reset anything. The testnet registry is `registry.vbreak-t2funder-1109.testnet` and the pool `pool.vbreak-t2funder-1109.testnet` (both locked; manifests in `deployments/`). Secrets (model key, Guardian keys, faucet key) live only on the backend host; the website and Vercel settings hold none. Live end-to-end test: `node web/scripts/live-e2e.mjs https://tryvaultbreak.vercel.app`; screenshots in [docs/screens/deployed](docs/screens/deployed/).
 
-**Run it locally instead:** see "The web UI" below (`npm run dev`, then http://localhost:5173).
+**Run it locally instead:** see "The web UI" below (`npm run dev` starts a throw-away local sandbox with seeded demo data).
+
 
 ## The problem
 
