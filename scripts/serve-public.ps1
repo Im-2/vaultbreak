@@ -4,7 +4,7 @@
 # hidden background process, 3. opens a free Cloudflare quick tunnel (no account), 4. writes the tunnel URL into the
 # rewrite in web/vercel.json and redeploys the site. The Vercel domain is the stable public address; only the tunnel
 # behind it changes on every restart. Secrets (model key) are read by the backend from the gitignored .env, never by the website.
-param([string]$PublicBase = "https://vaultbreak-orpin.vercel.app", [switch]$NoDeploy, [switch]$Reuse)
+param([string]$PublicBase = "https://tryvaultbreak.vercel.app", [switch]$NoDeploy, [switch]$Reuse)
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $logs = Join-Path $repo ".serve"; New-Item -ItemType Directory -Force $logs | Out-Null

@@ -1,9 +1,9 @@
 // Smoke test of the DEPLOYED site (Vercel -> /api rewrite -> backend). Screenshots go to docs/screens/deployed/.
-// Usage: node web/scripts/smoke-deployed.mjs https://vaultbreak-orpin.vercel.app
+// Usage: node web/scripts/smoke-deployed.mjs https://tryvaultbreak.vercel.app
 import { chromium } from "playwright";
 import { mkdirSync } from "node:fs";
 
-const base = (process.argv[2] ?? "https://vaultbreak-orpin.vercel.app").replace(/\/+$/, "");
+const base = (process.argv[2] ?? "https://tryvaultbreak.vercel.app").replace(/\/+$/, "");
 const out = new URL("../../docs/screens/deployed/", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
 mkdirSync(out, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

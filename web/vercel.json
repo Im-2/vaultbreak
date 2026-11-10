@@ -4,7 +4,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://scenes-calculation-zoloft-acquisition.trycloudflare.com/:path*" },
+    { "source": "/api/:path*", "destination": "https://buses-cartoon-interference-cassette.trycloudflare.com/:path*" },
     { "source": "/((?!assets/|api/).*)", "destination": "/index.html" }
   ],
   "headers": [

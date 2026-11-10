@@ -6,7 +6,7 @@ Status: **Layers 1 (core), 2 (privacy commit-reveal + TEE attestation), 3 (NFT r
 
 ## Live demo
 
-**https://vaultbreak-orpin.vercel.app**
+**https://tryvaultbreak.vercel.app**
 
 Do X, see Y (no wallet, no install):
 
