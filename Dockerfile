@@ -5,7 +5,6 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY server/package.json server/
 COPY sdk/package.json sdk/
-COPY web/package.json web/
 RUN npm install --no-audit --no-fund --workspace=@vaultbreak/server --workspace=@vaultbreak/sdk --include-workspace-root
 COPY server server
 COPY sdk sdk
