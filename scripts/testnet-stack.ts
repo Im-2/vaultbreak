@@ -113,7 +113,7 @@ if (missing.length || needHistory) {
 await syncAll(db, cfg).catch((e) => log(`sync: ${String(e).slice(0, 100)}`));
 log("ready");
 
-startIndexer(db, cfg, 20000);
+startIndexer(db, cfg, Number(process.env.INDEXER_MS ?? 60000));
 startBackups(DATA, log);
 serve({ fetch: live.app.fetch, port: PORT });
 console.log(`\n  Vaultbreak demo backend is up (NEAR testnet · play money)\n  API  http://localhost:${PORT}   (model: ${cfg.llm.provider === "mock" ? "scripted mock" : `${cfg.llm.provider} / ${cfg.llm.model}`})\n  registry ${REGISTRY} · pool ${POOL} · state in ${DATA}/\n`);

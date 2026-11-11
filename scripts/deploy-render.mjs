@@ -15,7 +15,7 @@ const call = async (path, method = "GET", body) => {
 const need = (k) => { const v = process.env[k]; if (!v) throw new Error(`${k} is not set in .env`); return v; };
 const funderKey = process.env.TESTNET_FUNDER_KEY ?? JSON.parse(readFileSync(".keys/vbreak-t2funder-1109.testnet.json", "utf8")).private_key;
 const envVars = [
-  ["PORT", "8787"], ["PUBLIC_BASE_URL", "https://tryvaultbreak.vercel.app"],
+  ["PORT", "8787"], ["NEAR_RPC_URL", "https://test.rpc.fastnear.com,https://rpc.testnet.near.org,https://near-testnet.drpc.org"], ["PUBLIC_BASE_URL", "https://tryvaultbreak.vercel.app"],
   ["MODEL_PROVIDER", process.env.MODEL_PROVIDER ?? "groq"], ["MODEL_NAME", process.env.MODEL_NAME ?? "openai/gpt-oss-120b"], ["MODEL_API_KEY", need("MODEL_API_KEY")],
   ["BLOB_READ_WRITE_TOKEN", need("BLOB_READ_WRITE_TOKEN")], ["BACKUP_PASSPHRASE", need("BACKUP_PASSPHRASE")], ["TESTNET_FUNDER_KEY", funderKey],
 ].map(([key, value]) => ({ key, value }));

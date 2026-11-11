@@ -109,9 +109,13 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
   const isAdmin = (c: any) => !!cfg.adminToken && c.req.header("x-admin-token") === cfg.adminToken;
 
   /** Reads the vault straight from chain (so NFT metadata is always live); falls back to the indexer's cache if RPC fails. */
+  // Free public RPC endpoints rate-limit hard: reuse a vault read for 5 seconds (the UI polls, and one page load asks for many Guardians).
+  const liveCache = new Map<string, { at: number; v: { state: any; stats: any; params: any } }>();
   async function liveOrCached(g: any): Promise<{ state: any; stats: any; params: any }> {
+    const hit = liveCache.get(g.id); if (hit && Date.now() - hit.at < 5000) return hit.v;
     try {
       const [state, stats, params] = await Promise.all([view(p, g.vault_account, "get_state"), view(p, g.vault_account, "get_stats"), view(p, g.vault_account, "get_params")]) as any[];
+      liveCache.set(g.id, { at: Date.now(), v: { state, stats, params } });
       return { state, stats, params };
     } catch (e) {
       let cached = g.state_json ? JSON.parse(g.state_json) : null;
@@ -514,7 +518,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
   const scheduleSnapshot = (id: string) => { if (!blobToken || snapTimers.has(id)) return; snapTimers.set(id, setTimeout(() => { snapTimers.delete(id); void snapshotOne(id); }, 2500)); };
   if (blobToken) {
     const all = async () => { for (const g of db.prepare("SELECT id FROM guardians WHERE pending=0").all() as any[]) await snapshotOne(g.id); };
-    setTimeout(() => void all(), 5000); (setInterval(() => void all(), 60_000) as any).unref?.();
+    setTimeout(() => void all(), 5000); (setInterval(() => void all(), Number(process.env.SNAPSHOT_EVERY_MS ?? 300_000)) as any).unref?.();
     app.use("*", async (c, next) => {
       await next();
       if (c.req.method !== "POST") return;

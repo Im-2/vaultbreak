@@ -10,7 +10,7 @@
     },
     {
       "source": "/api/:path*",
-      "destination": "https://birth-arrival-pine-blair.trycloudflare.com/:path*"
+      "destination": "https://vaultbreak-backend-x6zt.onrender.com/:path*"
     },
     {
       "source": "/((?!assets/|api/).*)",
