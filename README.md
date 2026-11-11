@@ -30,15 +30,12 @@ Do X, see Y, tab by tab:
 - Models are stochastic: a strong Guardian can in principle be talked into releasing, and a weak one is meant to be. The vault, not the AI, limits the damage.
 - Play money is finite: new play accounts stop when the faucet account runs low, top-ups are capped per player, sign-ups are rate limited per IP, and the model has a daily call cap.
 
-**When the author's computer is off:** NFT metadata links (`/api/guardians/:id/metadata.json`) keep working from saved snapshots (Vercel function + Vercel Blob), and the site shows a "backend offline" banner; live data, chats and sign-in come back when the backend is restarted. The backend's state is backed up encrypted off-site and restored on boot. See [docs/hosting.md](docs/hosting.md) for the host options and what is still manual.
+**How it is hosted (all free, nothing depends on the author's computer).** The website is on Vercel (static, `web/`). The backend is a Docker web service on Render's free plan, https://vaultbreak-backend-x6zt.onrender.com (`Dockerfile`, `render.yaml`, deployed with `node --env-file=.env scripts/deploy-render.mjs`); Vercel proxies `/api/*` to it (`web/vercel.json`). Secrets (Groq key, Guardian and play-account keys, faucet key, backup passphrase) live only in Render environment variables and the encrypted backup, never in git or on the website.
+- **Sleeping:** a free Render service sleeps after 15 minutes without traffic and wakes in up to about a minute. A GitHub Actions job (`.github/workflows/keepalive.yml`) pings it every 10 minutes (GitHub's scheduler can be late), and the site shows "Waking up the demo backend…" if it is asleep.
+- **Disk is wiped on every restart,** so the backend backs up its whole state (SQLite database, Guardian and play-account keys) every 2 minutes, encrypted with AES-256-GCM, to Vercel Blob, and restores it at boot. A restart was tested: 24 sessions, 11 Guardians and the leaderboard were identical before and after; the log shows the restore.
+- **NFT metadata** (`/api/guardians/:id/metadata.json`) is served by a Vercel function that falls back to saved snapshots, so it works even while the backend sleeps or is down.
+- **Limits of free hosting:** a restart can lose up to 2 minutes of the newest activity; public testnet RPC endpoints rate-limit, so the backend caches vault reads for 5 seconds; free Render allows 750 hours per month, one always-on service fits (a 31-day month is 744 h).
 
-**How it is hosted.** The website is on Vercel (static, `web/`). The backend (SQLite file, live SSE, Guardian keys) cannot run on Vercel, so it runs on the author's computer behind a free Cloudflare quick tunnel; Vercel proxies `/api/*` to it (`web/vercel.json`). If that computer sleeps, the API stops answering (the pages still load); the tunnel URL changes on every restart. Re-publish with one command (Windows + WSL Ubuntu):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts/serve-public.ps1     # add -Reuse to keep a running backend
-```
-
-State (database, Guardian keys) lives in `.testnet-data/` (gitignored), so restarts do not reset anything. The testnet registry is `registry.vbreak-t2funder-1109.testnet` and the pool `pool.vbreak-t2funder-1109.testnet` (both locked; manifests in `deployments/`). Secrets (model key, Guardian keys, faucet key) live only on the backend host; the website and Vercel settings hold none. Live end-to-end test: `node web/scripts/live-e2e.mjs https://tryvaultbreak.vercel.app`; screenshots in [docs/screens/deployed](docs/screens/deployed/).
 
 **Run it locally instead:** see "The web UI" below (`npm run dev` starts a throw-away local sandbox with seeded demo data).
 

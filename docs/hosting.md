@@ -1,6 +1,6 @@
 # Hosting the backend off the author's laptop
 
-**Status: NOT DONE for the backend host (needs a human sign-up), DONE for everything that does not need one.**
+**Status: DONE. The backend runs on Render's free plan (https://vaultbreak-backend-x6zt.onrender.com), deployed through the Render API.** The rest of this file is the background and the fallback options.
 
 ## What survives the laptop being off (done, tested live)
 - `/api/guardians/:id/metadata.json` is served by a Vercel function (`web/api/metadata.js`). It asks the backend (2.5 s timeout), then falls back to the last snapshot the backend saved to Vercel Blob, then to the snapshot bundled with the deployment. Always valid JSON, `content-type: application/json`, CORS open, never an HTML error page. Unknown ids get a JSON 404.
