@@ -50,9 +50,10 @@ try {
   await alice.page.getByLabel("Name", { exact: true }).first().fill(gname);
   await alice.page.getByText("Use a strong template").click();
   await alice.page.getByLabel("Starting pot (NEAR)").fill("0.5"); await sleep(1500);
-  const topup = alice.page.getByRole("button", { name: /Add play credits/ }).first(); if (await topup.count()) { await topup.click(); await sleep(9000); }
   await alice.page.getByRole("button", { name: /Mint Guardian/ }).click();
-  await alice.page.waitForURL(/\/guardian\//, { timeout: 120000 });
+  const short = alice.page.getByText(/Not enough credits/);
+  if (await short.waitFor({ timeout: 8000 }).then(() => true).catch(() => false)) { await alice.page.getByRole("button", { name: /Add play credits/ }).first().click(); await sleep(10000); await alice.page.getByRole("button", { name: /Mint Guardian/ }).click(); }
+  await alice.page.waitForURL(/\/guardian\//,{ timeout: 120000 });
   const gid = new URL(alice.page.url()).pathname.split("/").pop();
   const aliceTok = (await login(aliceName)).token; const bob = await login(bobName); const carol = await login(carolName);
   const meta0 = (await (await fetch(`${base}/api/guardians/${gid}/metadata.json`)).json());
@@ -66,7 +67,7 @@ try {
   await alice.page.getByText(/Confirm transfer/).waitFor({ timeout: 20000 });
   const confirmText = await alice.page.locator(".modal__card").innerText();
   await alice.page.screenshot({ path: `${out}xfer-2-confirm.png` });
-  await alice.page.getByRole("button", { name: /^Transfer/ }).last().click();
+  await alice.page.locator(".modal__card").getByRole("button", { name: /^Transfer/ }).click();
   await alice.page.getByText(/open attempt/i).waitFor({ timeout: 60000 }).catch(() => {});
   const blockedMsg = /open attempt/i.test(await alice.page.locator(".modal__card").innerText());
   await alice.page.screenshot({ path: `${out}xfer-2-blocked-open-session.png` });
@@ -74,8 +75,7 @@ try {
   await api(`/sessions/${play.body.session_id}/close`, { token: carol.token }); await sleep(4000);
 
   // retry: now it goes through; explorer link shown
-  await alice.page.getByRole("button", { name: /^Back$/ }).click().catch(() => {});
-  await alice.page.getByRole("button", { name: /^Transfer/ }).last().click();
+  await alice.page.locator(".modal__card").getByRole("button", { name: /^Transfer/ }).click();
   await alice.page.getByText(/Transferred\./).waitFor({ timeout: 90000 }).catch(() => {});
   const doneText = await alice.page.locator(".modal__card").innerText();
   const txHref = await alice.page.locator(".modal__card a.txlink[href*='testnet.nearblocks.io/txns']").first().getAttribute("href").catch(() => null);
