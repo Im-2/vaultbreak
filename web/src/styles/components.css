@@ -98,3 +98,11 @@ input:focus, textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rg
 .footer__note p { font-size: 14px; color: rgba(250,250,250,.78); max-width: 62ch; } .footer__note code { background: rgba(255,255,255,.1); }
 .footer__net { margin-top: 10px; font-size: 12.5px !important; color: rgba(250,250,250,.5) !important; }
 .footer__word { font-weight: 300; font-size: clamp(64px, 17vw, 260px); line-height: .9; letter-spacing: -.045em; margin-top: clamp(40px, 7vw, 100px); }
+
+/* passphrase show/hide: the toggle sits inside the field's box (positioned over the input's right edge) */
+.modal__card label:has(.pw) { position: relative; }
+.pw { display: block; }
+.pw input { padding-right: 48px; }
+.pw__toggle { position: relative; display: block; margin: -46px 6px 0 auto; width: 38px; height: 38px; transform: translateY(-1px); border: 0; background: transparent; border-radius: 10px; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.pw__toggle:hover { color: var(--ink); }
+.pw__toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }

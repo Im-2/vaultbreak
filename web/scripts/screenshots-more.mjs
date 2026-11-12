@@ -21,7 +21,7 @@ async function friend(name) { const r = await post("/custodial/signin", null, { 
 
 async function signIn(page, name) {
   await page.getByRole("button", { name: /Sign in with a name/ }).click();
-  await page.getByLabel("Name").fill(name); await page.getByLabel("Passphrase").fill("demo-passphrase");
+  await page.getByLabel("Name").fill(name); await page.getByLabel("Passphrase", { exact: true }).fill("demo-passphrase");
   await page.getByRole("button", { name: /Continue/ }).click();
   await page.getByRole("button", { name: /Sign in with a name/ }).waitFor({ state: "detached", timeout: 30000 });
   await sleep(1200);

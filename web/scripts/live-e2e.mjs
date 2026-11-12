@@ -21,7 +21,7 @@ async function newPage() {
 }
 async function signIn(page, name, opener) {
   await opener();
-  await page.getByLabel("Name").fill(name); await page.getByLabel("Passphrase").fill("demo-passphrase");
+  await page.getByLabel("Name").fill(name); await page.getByLabel("Passphrase", { exact: true }).fill("demo-passphrase");
   await page.getByRole("button", { name: /Continue/ }).click();
   await page.getByRole("dialog").waitFor({ state: "detached", timeout: 60000 });
   await sleep(2000);

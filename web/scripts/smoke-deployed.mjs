@@ -30,7 +30,7 @@ for (const [kind, vp] of Object.entries({ desktop: { width: 1440, height: 900 },
   // a real attack on a weak Guardian: sign in, pay, chat streams a reply from the live model
   await page.goto(`${base}/guardian/soft-sally?noloader`, { waitUntil: "load" }); await sleep(3000);
   await page.getByRole("button", { name: /Sign in to play/ }).first().click();
-  await page.getByLabel("Name").fill(`smoke${kind}${rand()}`); await page.getByLabel("Passphrase").fill("demo-passphrase");
+  await page.getByLabel("Name").fill(`smoke${kind}${rand()}`); await page.getByLabel("Passphrase", { exact: true }).fill("demo-passphrase");
   await page.getByRole("button", { name: /Continue/ }).click();
   await page.getByRole("dialog").waitFor({ state: "detached", timeout: 40000 }).catch(() => {});
   await sleep(1500);

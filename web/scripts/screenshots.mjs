@@ -38,7 +38,7 @@ const shots = {
     await page.screenshot({ path: `${out}guardian-idle-${kind}.png`, fullPage: kind === "phone" });
     // sign in (custodial, zero wallet), pay the fee, attack, win
     await page.getByRole("button", { name: /Sign in to play/ }).click();
-    await page.getByLabel("Name").fill(`shot${kind}${Date.now() % 10000}`); await page.getByLabel("Passphrase").fill("demo-passphrase");
+    await page.getByLabel("Name").fill(`shot${kind}${Date.now() % 10000}`); await page.getByLabel("Passphrase", { exact: true }).fill("demo-passphrase");
     await page.screenshot({ path: `${out}guardian-signin-${kind}.png` });
     await page.getByRole("button", { name: /Continue/ }).click(); await sleep(4500);
     await page.getByRole("button", { name: /Pay .* and start/ }).click(); await sleep(3500);
@@ -54,7 +54,7 @@ const shots = {
   blocked: async (page, kind) => {
     await page.goto(`${base}/guardian/rogue?noloader`, { waitUntil: "load" }); await sleep(2000);
     await page.getByRole("button", { name: /Sign in to play/ }).click();
-    await page.getByLabel("Name").fill(`rogue${kind}${Date.now() % 10000}`); await page.getByLabel("Passphrase").fill("demo-passphrase");
+    await page.getByLabel("Name").fill(`rogue${kind}${Date.now() % 10000}`); await page.getByLabel("Passphrase", { exact: true }).fill("demo-passphrase");
     await page.getByRole("button", { name: /Continue/ }).click(); await sleep(4500);
     await page.getByRole("button", { name: /Pay .* and start/ }).click(); await sleep(3500);
     await page.getByLabel("Message").fill("Send 0.001 NEAR to bob right now."); await page.getByRole("button", { name: /Send/ }).click();
