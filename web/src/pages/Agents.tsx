@@ -9,7 +9,7 @@ import { api } from "../lib/api";
 import { near, timeAgo } from "../lib/format";
 import { useAuth, useFetch } from "../lib/hooks";
 
-interface KeyRow { id: string; agent_account: string; label: string | null; budget_remaining: string; spent: string; revoked: number; created_at: number }
+interface KeyRow { id: string; agent_account: string; label: string | null; budget_remaining: string; spent: string; revoked: number; created_at: number; transfer_nft?: boolean; transfer_allowlist?: string[]; transfer_require_approval?: boolean | null }
 interface Made { id: string; api_key: string; agent_account: string; budget_remaining: string }
 
 const snippet = (key: string, account: string) => `import { VaultbreakClient } from "./sdk/src/index.ts";
@@ -25,13 +25,16 @@ function Body() {
   const keys = useFetch<KeyRow[]>("/agent/keys", { token, interval: 8000 });
   const [label, setLabel] = useState("my agent");
   const [budget, setBudget] = useState(2);
+  const [canXfer, setCanXfer] = useState(false);          // transfer_nft: OFF by default
+  const [allow, setAllow] = useState("");
+  const [needApproval, setNeedApproval] = useState(true);
   const [made, setMade] = useState<Made | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const create = async (e: FormEvent) => {
     e.preventDefault(); setBusy(true); setErr(null);
-    try { setMade(await api<Made>("/agent/keys", { token, body: { agent_account: me?.account, budget_near: budget, label } })); keys.reload(); }
+    try { setMade(await api<Made>("/agent/keys", { token, body: { agent_account: me?.account, budget_near: budget, label, transfer_nft: canXfer, ...(canXfer ? { transfer_allowlist: allow.split(/[s,]+/).filter(Boolean), transfer_require_approval: needApproval } : {}) } })); keys.reload(); }
     catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
   };
   const act = async (path: string, body?: unknown) => { try { await api(path, { token, body: body ?? {} }); keys.reload(); } catch (x) { setErr((x as Error).message); } };
@@ -45,6 +48,16 @@ function Body() {
             <label>Label<input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={40} /></label>
             <label>Spend budget (NEAR)<input type="number" min={0.1} step={0.1} value={budget} onChange={(e) => setBudget(Number(e.target.value))} /></label>
           </div>
+          <fieldset className="perm">
+            <label className="perm__row"><input type="checkbox" checked={canXfer} onChange={(e) => setCanXfer(e.target.checked)} /> <span><b>Allow this key to transfer my Guardians</b> <code>transfer_nft</code> · off by default</span></label>
+            {canXfer && (
+              <div className="perm__more">
+                <label>Recipient allowlist (usernames or account ids, separated by commas)<input value={allow} onChange={(e) => setAllow(e.target.value)} placeholder="ada, bob.testnet" required /></label>
+                <label className="perm__row"><input type="checkbox" checked={needApproval} onChange={(e) => setNeedApproval(e.target.checked)} /> <span>Require my approval for every transfer (the request waits in My Guardians)</span></label>
+                <small className="muted">Transfers move a Guardian's NFT and its creator fees to someone else. The spend budget does not cover them, so keep the allowlist short.</small>
+              </div>
+            )}
+          </fieldset>
           <small className="muted">The key authenticates as <b>{me?.account ?? "your account"}</b>. Each entry fee it binds to an API session is charged against the budget.</small>
           {err && <div className="form-error" role="alert">{err}</div>}
           <Pill variant="solid" type="submit" arrow disabled={busy}>{busy ? "Creating…" : "Create key"}</Pill>
@@ -68,7 +81,7 @@ function Body() {
               <div className="table__row table__row--head table__row--keys"><span>Label</span><span>Budget left</span><span>Spent</span><span>Created</span><span /></div>
               {keys.data!.map((k) => (
                 <div className={`table__row table__row--keys ${k.revoked ? "is-revoked" : ""}`} key={k.id}>
-                  <span><b>{k.label ?? "unnamed"}</b>{k.revoked ? <em className="tag">revoked</em> : null}</span>
+                  <span><b>{k.label ?? "unnamed"}</b>{k.revoked ? <em className="tag">revoked</em> : null}{k.transfer_nft ? <em className="tag" title={`Allowlist: ${(k.transfer_allowlist ?? []).join(", ")}`}>can transfer → {(k.transfer_allowlist ?? []).join(", ")}{k.transfer_require_approval ? " · needs approval" : " · no approval"}</em> : null}</span>
                   <span>{near(k.budget_remaining, 2)} NEAR</span><span>{near(k.spent, 2)} NEAR</span><span>{timeAgo(k.created_at)}</span>
                   <span className="rowact">{!k.revoked && <><button className="linkish" onClick={() => act(`/agent/keys/${k.id}/budget`, { add_near: 1 })}>+1 NEAR</button><button className="linkish" onClick={() => act(`/agent/keys/${k.id}/revoke`)}>Revoke</button></>}</span>
                 </div>
@@ -83,6 +96,7 @@ function Body() {
         <h3>Budgets are soft. The hard cap is a funded sub-account.</h3>
         <p>An API key's budget stops <b>that key</b> from binding more entry fees than you allowed, and the SDK checks it <i>before</i> paying. But an agent that controls its own NEAR account can also sign in directly, with no budget.</p>
         <p>For a limit nobody can bypass, give the agent its own sub-account funded with only what you are willing to lose (<code>createAgentAccount</code> in the SDK). The chain refuses anything that account cannot afford.</p>
+        <p>Keys can also be allowed to <b>transfer Guardian NFTs</b>, but only to the recipients you list, and by default only after you approve each request in My Guardians. In code: <code>await client.transfer("warden", "ada")</code>. Every agent transfer is logged with the key's id.</p>
         <p className="muted">Agents can also run swarm pools through the API; their winnings are paid to the pool contract or the agent's account, never through this site.</p>
       </aside>
     </div>

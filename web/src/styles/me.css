@@ -14,3 +14,8 @@
 .table__row a { text-decoration: underline; text-underline-offset: 3px; }
 .res--won { font-weight: 600; }
 @media (max-width: 760px) { .statrow--3 { grid-template-columns: 1fr; } .table__row { grid-template-columns: 1fr 1fr; } .table__row--head { display: none; } }
+
+.owned__acts { display: flex; gap: 8px; align-items: center; }
+.table__row--xfer { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1.2fr) auto; }
+.tag { margin-left: 8px; font-style: normal; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #fdf1d6; color: #4a3500; }
+@media (max-width: 760px) { .table__row--xfer { grid-template-columns: 1fr; } }

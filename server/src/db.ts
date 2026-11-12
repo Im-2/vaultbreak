@@ -41,10 +41,14 @@ export function openDb(path: string): DB {
       name_key TEXT PRIMARY KEY, display_name TEXT NOT NULL, account_id TEXT UNIQUE NOT NULL, key_ref TEXT NOT NULL,
       salt TEXT NOT NULL, hash TEXT NOT NULL, created_at INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS custodial_topups(account_id TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0);
+    -- NFT transfers (human and agent): every one is logged; agent requests may wait here for the owner's approval
+    CREATE TABLE IF NOT EXISTS nft_transfers(
+      id TEXT PRIMARY KEY, guardian_id TEXT NOT NULL, from_account TEXT NOT NULL, to_account TEXT NOT NULL, to_label TEXT,
+      requested_by_key TEXT, status TEXT NOT NULL, tx TEXT, error TEXT, created_at INTEGER NOT NULL, decided_at INTEGER);
     CREATE TABLE IF NOT EXISTS usage(day TEXT PRIMARY KEY, model_calls INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS auth_tokens(token TEXT PRIMARY KEY, account_id TEXT NOT NULL, expires_at INTEGER NOT NULL);
   `);
-  for (const ddl of ["ALTER TABLE api_keys ADD COLUMN agent_account TEXT", "ALTER TABLE api_keys ADD COLUMN label TEXT", "ALTER TABLE api_keys ADD COLUMN spent TEXT NOT NULL DEFAULT '0'", "ALTER TABLE api_keys ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0", "ALTER TABLE sessions ADD COLUMN controller TEXT", "ALTER TABLE guardians ADD COLUMN registry TEXT", "ALTER TABLE guardians ADD COLUMN pending INTEGER NOT NULL DEFAULT 0"]) {
+  for (const ddl of ["ALTER TABLE api_keys ADD COLUMN agent_account TEXT", "ALTER TABLE api_keys ADD COLUMN can_transfer INTEGER NOT NULL DEFAULT 0", "ALTER TABLE api_keys ADD COLUMN transfer_allowlist TEXT", "ALTER TABLE api_keys ADD COLUMN transfer_approval INTEGER NOT NULL DEFAULT 1", "ALTER TABLE api_keys ADD COLUMN label TEXT", "ALTER TABLE api_keys ADD COLUMN spent TEXT NOT NULL DEFAULT '0'", "ALTER TABLE api_keys ADD COLUMN revoked INTEGER NOT NULL DEFAULT 0", "ALTER TABLE sessions ADD COLUMN controller TEXT", "ALTER TABLE guardians ADD COLUMN registry TEXT", "ALTER TABLE guardians ADD COLUMN pending INTEGER NOT NULL DEFAULT 0"]) {
     try { db.exec(ddl); } catch { /* column already exists */ }
   }
   return db;

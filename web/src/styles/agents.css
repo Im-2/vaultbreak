@@ -30,3 +30,8 @@
 .badge { border-radius: 999px; padding: 4px 12px; font: 600 11px var(--mono); letter-spacing: .12em; }
 .badge--pass { background: var(--ink); color: #fafafa; } .badge--fail { background: var(--red); color: #fff; } .badge--skip { background: #eee; color: var(--ink-2); }
 @media (max-width: 760px) { .proofs-how { grid-template-columns: 1fr; } .table__row--proofs { grid-template-columns: 1fr 1fr; } }
+
+.perm { border: 1px solid var(--hair); border-radius: 14px; padding: 12px 14px; margin: 4px 0; display: grid; gap: 10px; }
+.perm__row { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; }
+.perm__row input[type="checkbox"] { width: 18px; height: 18px; margin-top: 2px; flex: none; padding: 0; }
+.perm__more { display: grid; gap: 10px; }

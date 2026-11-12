@@ -54,6 +54,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     { re: /^\/me\/guardians$/, key: "mint", n: 10, ms: 86_400_000 },
     { re: /^\/me\/pools/, key: "pool", n: 60, ms: 3_600_000 },
     { re: /^\/custodial\/topup$/, key: "topup", n: 10, ms: 3_600_000 },
+    { re: /^\/guardians\/[^/]+\/transfer$/, key: "transfer", n: 20, ms: 3_600_000 },
   ];
   app.use("*", async (c, next) => {
     const ip = clientIp(c);
@@ -383,14 +384,23 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     if (agent !== owner && !agent.endsWith(`.${owner}`)) return c.json({ error: "agent_account must be your own account or one of its sub-accounts" }, 403);
     const budget = Number(b.budget_near);
     if (!(budget > 0) || budget > 1_000_000) return c.json({ error: "budget_near must be > 0" }, 400);
+    // Optional permission "transfer_nft" (OFF by default). If on, a recipient allowlist is mandatory; "require_approval" (default on)
+    // turns each agent transfer into a Pending request that the owner approves in My Guardians. The spend budget does not cover transfers.
+    const canTransfer = b.transfer_nft === true;
+    const allow: string[] = Array.isArray(b.transfer_allowlist) ? [...new Set(b.transfer_allowlist.map((x: unknown) => String(x).trim().toLowerCase()).filter(Boolean))].slice(0, 50) as string[] : [];
+    if (canTransfer && allow.length === 0) return c.json({ error: "transfer_nft needs a recipient allowlist (usernames or account ids)" }, 400);
+    const approval = b.transfer_require_approval === false ? 0 : 1;
     const secret = `vbk_${randomBytes(24).toString("hex")}`;
     const id = randomUUID();
-    db.prepare("INSERT INTO api_keys(id, owner, hash, budget_remaining, created_at, agent_account, label) VALUES (?,?,?,?,?,?,?)").run(id, owner, sha256Hex(secret), near(budget).toString(), now(), agent, b.label ?? null);
-    return c.json({ id, api_key: secret, agent_account: agent, budget_remaining: near(budget).toString(), note: "the key is shown once" });
+    db.prepare("INSERT INTO api_keys(id, owner, hash, budget_remaining, created_at, agent_account, label, can_transfer, transfer_allowlist, transfer_approval) VALUES (?,?,?,?,?,?,?,?,?,?)").run(id, owner, sha256Hex(secret), near(budget).toString(), now(), agent, b.label ?? null, canTransfer ? 1 : 0, canTransfer ? JSON.stringify(allow) : null, approval);
+    return c.json({ id, api_key: secret, agent_account: agent, budget_remaining: near(budget).toString(), transfer_nft: canTransfer, transfer_allowlist: canTransfer ? allow : [], transfer_require_approval: canTransfer ? !!approval : null, note: "the key is shown once" });
   });
   app.get("/agent/keys", (c) => {
     const owner = account(c); if (!owner || c.req.header("x-api-key")) return c.json({ error: "login required" }, 401);
-    return c.json(db.prepare("SELECT id, agent_account, label, budget_remaining, spent, revoked, created_at FROM api_keys WHERE owner=? ORDER BY created_at").all(owner));
+    return c.json((db.prepare("SELECT id, agent_account, label, budget_remaining, spent, revoked, created_at, can_transfer, transfer_allowlist, transfer_approval FROM api_keys WHERE owner=? ORDER BY created_at").all(owner) as any[]).map((k) => ({
+      id: k.id, agent_account: k.agent_account, label: k.label, budget_remaining: k.budget_remaining, spent: k.spent, revoked: k.revoked, created_at: k.created_at,
+      transfer_nft: !!k.can_transfer, transfer_allowlist: k.transfer_allowlist ? JSON.parse(k.transfer_allowlist) : [], transfer_require_approval: k.can_transfer ? !!k.transfer_approval : null,
+    })));
   });
   app.post("/agent/keys/:id/revoke", (c) => {
     const owner = account(c); if (!owner || c.req.header("x-api-key")) return c.json({ error: "login required" }, 401);
@@ -523,7 +533,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       await next();
       if (c.req.method !== "POST") return;
       const path = new URL(c.req.url).pathname;
-      const g = /^\/guardians\/([^/]+)\/(play|confirm|sessions)/.exec(path); if (g) return scheduleSnapshot(g[1]);
+      const g = /^\/guardians\/([^/]+)\/(play|confirm|sessions|transfer)/.exec(path); if (g) return scheduleSnapshot(g[1]);
       const sx = /^\/sessions\/([^/]+)\/(messages|close)/.exec(path);
       if (sx) { const row = db.prepare("SELECT guardian_id FROM sessions WHERE id=?").get(sx[1]) as any; if (row) scheduleSnapshot(row.guardian_id); }
     });
@@ -720,6 +730,116 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     try { await retryTransport(() => signer.callFunction({ contractId: g.vault_account, methodName: "claim_creator_fees", args: {}, gas: 100_000_000_000_000n })); }
     catch (e) { return c.json({ error: cleanErr(e) }, 409); }
     return c.json({ claimed: before.creator_balance });
+  });
+
+  // ---- NFT transfer: the registry's nft_transfer moves the NFT AND the vault owner role (creator-fee claims follow the new owner).
+  // The vault, its keys and its methods are untouched: this only calls the registry as the current owner, from that owner's play account.
+  const accountExists = async (id: string) => { try { await retryTransport(() => p.viewAccount({ accountId: id })); return true; } catch { return false; } };
+  /** A username (a play account) or a NEAR account id -> { account, label } or null. */
+  const resolveRecipient = async (raw: unknown): Promise<{ account: string; label: string | null } | null> => {
+    const t = String(raw ?? "").trim(); if (!t || t.length > 80) return null;
+    const byName = db.prepare("SELECT account_id, display_name FROM custodial WHERE name_key=?").get(t.toLowerCase()) as any;
+    if (byName) return { account: byName.account_id, label: byName.display_name };
+    const byAcct = db.prepare("SELECT account_id, display_name FROM custodial WHERE account_id=?").get(t.toLowerCase()) as any;
+    if (byAcct) return { account: byAcct.account_id, label: byAcct.display_name };
+    if (/^[a-z0-9][a-z0-9._-]*\.[a-z0-9._-]+$/.test(t.toLowerCase()) && (await accountExists(t.toLowerCase()))) return { account: t.toLowerCase(), label: null };
+    return null;
+  };
+  /** True when an attempt on this Guardian is still Open (checked on-chain, and stale rows are closed out). */
+  const hasOpenSession = async (g: any): Promise<boolean> => {
+    const rows = db.prepare("SELECT id, onchain_session_id FROM sessions WHERE guardian_id=? AND status='open'").all(g.id) as any[];
+    let open = false;
+    for (const r of rows) {
+      const s: any = await view(p, g.vault_account, "get_session", { session_id: String(r.onchain_session_id) }).catch(() => ({ status: "Open" }));
+      if (s?.status === "Open") open = true; else db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(s?.status ?? "failed").toLowerCase(), r.id);
+    }
+    return open;
+  };
+  const OPEN_MSG = "A player has an open attempt on this Guardian. Transfers are blocked until it ends (it can take up to 10 minutes), so nobody loses a pot mid-attempt.";
+  /** Runs the transfer as `from` (must own the Guardian). Returns the tx hash or throws { status, message }. */
+  const performTransfer = async (g: any, from: string, to: { account: string; label: string | null }): Promise<string> => {
+    const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
+    const signer = signerOf(from); if (!signer) throw fail(403, "only play accounts can transfer from this site");
+    if (to.account === from) throw fail(400, "the recipient already owns it");
+    liveCache.delete(g.id);
+    const st = (await liveOrCached(g)).state;
+    if (st.status !== "Armed") throw fail(409, "a defeated Guardian cannot be transferred from here");
+    if (st.owner !== from) throw fail(403, "you do not own this Guardian");
+    if (await hasOpenSession(g)) throw fail(409, OPEN_MSG);
+    let tx = "";
+    try {
+      const r: any = await retryTransport(() => signer.callFunctionRaw({ contractId: cfg.registry!, methodName: "nft_transfer", args: { receiver_id: to.account, token_id: g.id }, deposit: 1n, gas: 150_000_000_000_000n }));
+      tx = r.transaction?.hash as string;
+      const ok = (() => { try { const v = r.status?.SuccessValue; return v === undefined ? true : Buffer.from(v, "base64").toString() !== "false"; } catch { return true; } })();
+      if (!ok) throw fail(409, "the vault refused the new owner; nothing changed");
+    } catch (e: any) { if (e?.status) throw e; throw fail(409, cleanErr(e)); }
+    liveCache.delete(g.id); scheduleSnapshot(g.id);
+    return tx;
+  };
+  const logTransfer = (g: any, from: string, to: { account: string; label: string | null }, byKey: string | null, status: string, tx: string | null, error: string | null) => {
+    const id = randomUUID();
+    db.prepare("INSERT INTO nft_transfers(id, guardian_id, from_account, to_account, to_label, requested_by_key, status, tx, error, created_at, decided_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)").run(id, g.id, from, to.account, to.label, byKey, status, tx, error, now(), status === "pending" ? null : now());
+    return id;
+  };
+
+  // Look up a recipient before confirming (humans).
+  app.get("/me/transfer-lookup", async (c) => {
+    const acct = account(c); if (!acct || c.req.header("x-api-key")) return c.json({ error: "login required" }, 401);
+    const to = await resolveRecipient(c.req.query("to")); if (!to) return c.json({ error: "no play account or NEAR account with that name" }, 404);
+    return c.json({ account: to.account, name: to.label });
+  });
+
+  // Human or agent transfer. Humans (login) transfer immediately; an agent key needs the transfer_nft permission, a recipient on its
+  // allowlist and, unless switched off, the owner's approval. The agent's spend budget is not involved.
+  app.post("/guardians/:id/transfer", async (c) => {
+    const acct = account(c); if (!acct) return c.json({ error: "sign in first" }, 401);
+    const g = getG(c.req.param("id")); if (!g || g.pending || !cfg.registry) return c.json({ error: "not found" }, 404);
+    const b = await c.req.json().catch(() => ({}));
+    const to = await resolveRecipient(b.to ?? b.to_username ?? b.receiver); if (!to) return c.json({ error: "recipient not found: use a play username or an existing NEAR account id" }, 404);
+    const key = c.req.header("x-api-key") ? keyRow(c) : null;
+    if (c.req.header("x-api-key") && !key) return c.json({ error: "invalid API key" }, 401);
+    if (key) {
+      if (!key.can_transfer) { logTransfer(g, acct, to, key.id, "refused", null, "key has no transfer_nft permission"); return c.json({ error: "this API key does not have the transfer_nft permission" }, 403); }
+      const allow: string[] = key.transfer_allowlist ? JSON.parse(key.transfer_allowlist) : [];
+      const okRecipient = allow.some((x) => x === to.account || (to.label && x === to.label.toLowerCase()));
+      if (!okRecipient) { logTransfer(g, acct, to, key.id, "refused", null, "recipient not on the key's allowlist"); return c.json({ error: "the recipient is not on this API key's allowlist" }, 403); }
+      const st = (await liveOrCached(g)).state;
+      if (st.owner !== acct) return c.json({ error: "this key's account does not own that Guardian" }, 403);
+      if (key.transfer_approval) {
+        const id = logTransfer(g, acct, to, key.id, "pending", null, null);
+        return c.json({ status: "pending", transfer_id: id, note: "the owner must approve this in My Guardians before it runs" }, 202);
+      }
+    }
+    try {
+      const tx = await performTransfer(g, acct, to);
+      const id = logTransfer(g, acct, to, key?.id ?? null, "done", tx, null);
+      return c.json({ status: "done", transfer_id: id, tx, to: to.account });
+    } catch (e: any) {
+      if (key) logTransfer(g, acct, to, key.id, "failed", null, String(e.message).slice(0, 200));
+      return c.json({ error: e.message }, (e.status ?? 409) as any);
+    }
+  });
+
+  // The owner's inbox of pending agent requests, plus recent transfers (humans only).
+  app.get("/me/transfers", (c) => {
+    const acct = account(c); if (!acct || c.req.header("x-api-key")) return c.json({ error: "login required" }, 401);
+    const q = (extra: string) => db.prepare(`SELECT t.*, g.name AS guardian_name FROM nft_transfers t JOIN guardians g ON g.id = t.guardian_id WHERE (t.from_account=? OR t.to_account=?) ${extra} ORDER BY t.created_at DESC LIMIT 30`).all(acct, acct);
+    return c.json({ pending: (q("AND t.status='pending'") as any[]).filter((t) => t.from_account === acct), recent: q("AND t.status!='pending'") });
+  });
+  app.post("/me/transfers/:id/:decision", async (c) => {
+    const acct = account(c); if (!acct || c.req.header("x-api-key")) return c.json({ error: "login required" }, 401);
+    const t = db.prepare("SELECT * FROM nft_transfers WHERE id=?").get(c.req.param("id")) as any;
+    if (!t || t.from_account !== acct) return c.json({ error: "not found" }, 404);
+    if (t.status !== "pending") return c.json({ error: `already ${t.status}` }, 409);
+    const decision = c.req.param("decision");
+    if (decision === "reject") { db.prepare("UPDATE nft_transfers SET status='rejected', decided_at=? WHERE id=?").run(now(), t.id); return c.json({ status: "rejected" }); }
+    if (decision !== "approve") return c.json({ error: "unknown action" }, 404);
+    const g = getG(t.guardian_id); if (!g) return c.json({ error: "not found" }, 404);
+    try {
+      const tx = await performTransfer(g, acct, { account: t.to_account, label: t.to_label });
+      db.prepare("UPDATE nft_transfers SET status='done', tx=?, decided_at=? WHERE id=?").run(tx, now(), t.id);
+      return c.json({ status: "done", tx });
+    } catch (e: any) { return c.json({ error: e.message }, (e.status ?? 409) as any); }
   });
 
   // ---- swarm pools for custodial players (the contract is the source of truth)

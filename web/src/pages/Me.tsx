@@ -6,6 +6,7 @@ import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
 import { EmptyState, ErrorState, Skeleton } from "../components/States";
 import { AcctLink, TxLink } from "../components/TxLink";
+import { TransferDialog, TransferInbox } from "../components/Transfer";
 import { api, type Guardian } from "../lib/api";
 import { near, timeAgo } from "../lib/format";
 import { useAuth, useConfig, useFetch } from "../lib/hooks";
@@ -18,6 +19,7 @@ function Dashboard() {
   const owned = useFetch<Owned[]>("/me/guardians", { token, interval: 8000 });
   const [msg, setMsg] = useState<{ text: string; tone?: "error" } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [xfer, setXfer] = useState<Owned | null>(null);
 
   const claimable = (owned.data ?? []).reduce((a, g) => a + BigInt(g.creator_balance), 0n);
   const claim = async (g: Owned) => {
@@ -48,13 +50,16 @@ function Dashboard() {
                   {cfg?.explorer && <p className="onchain muted">{g.nft ? <>NFT <AcctLink id={g.nft.registry} cfg={cfg} nft={g.nft.token_id} label={`#${g.nft.token_id}`} /> · </> : null}vault <AcctLink id={g.vault_account} cfg={cfg} /></p>}
                   <div className="owned__bar">
                     <div><small>Creator fees</small><strong>{near(g.creator_balance, 3)} NEAR</strong></div>
-                    <Pill small variant="solid" disabled={busy === g.id || BigInt(g.creator_balance) === 0n} onClick={() => claim(g)}>{busy === g.id ? "Claiming…" : "Claim"}</Pill>
+                    <span className="owned__acts"><Pill small variant="solid" disabled={busy === g.id || BigInt(g.creator_balance) === 0n} onClick={() => claim(g)}>{busy === g.id ? "Claiming…" : "Claim"}</Pill><Pill small onClick={() => { setMsg(null); setXfer(g); }}>Transfer</Pill></span>
                   </div>
                 </div>
               ))}
             </div>
           )}
       </section>
+
+      <TransferInbox token={token!} cfg={cfg ?? null} onChange={() => { owned.reload(); refresh(); }} />
+      {xfer && token && <TransferDialog g={xfer} token={token} cfg={cfg ?? null} onClose={() => setXfer(null)} onDone={() => { owned.reload(); refresh(); }} />}
 
       <section className="block">
         <div className="block__head"><h2 className="display display--sm">Attempts I played</h2></div>

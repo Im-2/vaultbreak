@@ -104,6 +104,14 @@ export class VaultbreakClient {
 
   // ------------------------------------------------------------------ swarm pools (Layer 4)
   /** Signs + sends an unsigned transaction prepared by the API (the API never holds the agent's key). */
+  /**
+   * Transfers a Guardian NFT (and with it the vault's owner role, so creator fees follow) to another username or NEAR account.
+   * With an API key this needs the key's `transfer_nft` permission and a recipient on the key's allowlist; if the key requires approval
+   * the result is `{ status: "pending", transfer_id }` and the owner approves it in My Guardians. The key's spend budget is not involved.
+   */
+  async transfer(guardianId: string, toUsername: string): Promise<{ status: "done" | "pending"; transfer_id: string; tx?: string; to?: string; note?: string }> {
+    return this.json(`/guardians/${encodeURIComponent(guardianId)}/transfer`, { method: "POST", body: JSON.stringify({ to: toUsername }) });
+  }
   async sendPrepared(tx: { receiverId: string; actions: { params: { methodName: string; args: unknown; deposit: string; gas: string } }[] }): Promise<unknown> {
     const a = tx.actions[0].params;
     return retryTransport(() => this.account.callFunction({ contractId: tx.receiverId, methodName: a.methodName, args: a.args as any, deposit: BigInt(a.deposit), gas: BigInt(a.gas) }));
