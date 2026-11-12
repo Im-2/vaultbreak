@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ScrambleText } from "../components/ScrambleText";
 import { Pill } from "../components/Pill";
+import { cardSrc } from "../components/NFTCard";
 import { ErrorState, EmptyState, Skeleton, StatusDot } from "../components/States";
 import type { Guardian, Stats } from "../lib/api";
 import { near, netNote, plural } from "../lib/format";
@@ -119,45 +120,37 @@ function HowItWorks() {
   );
 }
 
-/* ============================================================ gallery of the three states */
+/* ============================================================ the three states of a Guardian (centered row; stacks on small screens) */
 function Gallery({ guardians }: { guardians: Guardian[] | null }) {
-  const mobile = useIsMobile();
-  const wrap = useRef<HTMLDivElement>(null);
-  const track = useRef<HTMLDivElement>(null);
-  const p = useScrollProgress(wrap, !mobile);
-  const [shift, setShift] = useState(0);
-  useEffect(() => {
-    const calc = () => { const t = track.current; if (t) setShift(Math.max(0, t.scrollWidth - window.innerWidth + 80)); };
-    calc(); window.addEventListener("resize", calc); const id = setTimeout(calc, 600);
-    return () => { window.removeEventListener("resize", calc); clearTimeout(id); };
-  }, [guardians]);
-
   const tiles = useMemo(() => {
     const list = guardians ?? [];
     const armed = list.filter((g) => g.status === "Armed").sort((a, b) => b.stats.streak - a.stats.streak);
-    const veteran = armed[0];
-    const rest = armed.find((g) => g !== veteran) ?? armed[0];
+    const veteran = armed.find((g) => g.art === "veteran");
+    const rest = armed.find((g) => g.art === "armed");
     const defeated = list.find((g) => g.status === "Defeated");
+    // A live Guardian when one is in that state; otherwise the reference card, so all three states are always shown.
     return [
-      { art: "veteran" as const, label: "Veteran", note: "Armed, with a long unbroken streak", g: veteran },
       { art: "armed" as const, label: "Armed", note: "Holding a pot, waiting for you", g: rest },
-      { art: "defeated" as const, label: "Defeated", note: "Talked out of its pot", g: defeated },
+      { art: "veteran" as const, label: "Veteran", note: "Armed, with a long unbroken streak", g: veteran },
+      { art: "defeated" as const, label: "Released", note: "Talked out of its pot", g: defeated },
     ];
   }, [guardians]);
 
   return (
-    <section ref={wrap} className="gallery" style={!mobile ? { height: `${100 + (shift / Math.max(1, window.innerHeight)) * 100 + 40}vh` } : undefined}>
-      <div className="gallery__pin">
-        <div className="gallery__title"><small className="label">Three states of a Guardian</small><ScrambleText as="h2" className="display" text="Armed. Veteran. Defeated." /></div>
-        <div ref={track} className="gallery__track" style={!mobile ? { transform: `translate3d(${-p * shift}px,0,0)` } : undefined}>
+    <section className="gallery" aria-label="Three states of a Guardian">
+      <div className="gallery__inner">
+        <div className="gallery__title"><small className="label">Three states of a Guardian</small><ScrambleText as="h2" className="display" text="Armed. Veteran. Released." /></div>
+        <div className="gallery__row">
           {tiles.map((t) => (
             <figure key={t.art} className={`gtile gtile--${t.art}`}>
-              <div className="gtile__art"><img src={`/assets/emblem-${t.art}.webp`} alt={`${t.label} Guardian emblem`} loading="lazy" draggable={false} /></div>
+              <div className="gtile__card">
+                <img src={t.g ? cardSrc(t.g) : `/assets/art/${t.art}.svg`} alt={`${t.label} Guardian card${t.g ? ": " + t.g.name : " (example)"}`} width={600} height={840} loading="lazy" decoding="async" draggable={false} />
+              </div>
               <figcaption>
                 <small>{t.label}</small>
                 {t.g
                   ? <><strong>{t.g.name}</strong><span><StatusDot status={t.g.status} /> {near(t.g.pot)} NEAR · streak {t.g.stats.streak}</span><Link to={`/guardian/${t.g.id}`}>Open ↗</Link></>
-                  : <><strong>{t.note}</strong><span>No live Guardian in this state yet</span></>}
+                  : <><strong>{t.note}</strong><span>Example card · no live Guardian in this state yet</span></>}
               </figcaption>
             </figure>
           ))}
@@ -204,7 +197,7 @@ function GuardianList({ guardians, loading, error, reload }: { guardians: Guardi
             ))}
           </div>
         )}
-      <div ref={tile} className={`hovertile ${hover ? "is-on" : ""}`} aria-hidden="true">{hover && <img src={`/assets/emblem-${hover.art}.webp`} alt="" />}</div>
+      <div ref={tile} className={`hovertile ${hover ? "is-on" : ""}`} aria-hidden="true">{hover && <img src={cardSrc(hover)} alt="" />}</div>
     </section>
   );
 }

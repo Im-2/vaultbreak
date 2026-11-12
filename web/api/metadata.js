@@ -57,7 +57,7 @@ export default async function handler(req, res) {
   }
 
   // 3. snapshot bundled with this deployment
-  if (bundled[id]) return send(200, stale(bundled[id], "bundled-snapshot"), "bundled-snapshot", "public, s-maxage=30, stale-while-revalidate=3600");
+  if (bundled.meta && bundled.meta[id]) return send(200, stale(bundled.meta[id], "bundled-snapshot"), "bundled-snapshot", "public, s-maxage=30, stale-while-revalidate=3600");
 
   return send(404, { error: "unknown guardian, and the backend is offline so there is no snapshot", id }, "none", "public, s-maxage=15");
 }

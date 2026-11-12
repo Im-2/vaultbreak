@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { cors } from "hono/cors";
+import { artState, cardSvg, hashText, potText, VETERAN_STREAK, type ArtState } from "./art.ts";
 import { bodyLimit } from "hono/body-limit";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { KeyPair } from "near-api-js";
@@ -17,8 +18,7 @@ import { formatResults, verifySession } from "./privacy/verify.ts";
 import type { Llm } from "./llm.ts";
 import { fetchAttestation, newNonce, verifyAttestation, type QuoteVerifier } from "./privacy/attestation.ts";
 
-/** One rule for the artwork everywhere (API, NFT metadata, UI): defeated beats everything, a streak of 10 or more is a veteran, otherwise armed. */
-export const VETERAN_STREAK = 10;
+export { VETERAN_STREAK } from "./art.ts";
 const AUTH_RECIPIENT = "vaultbreak";
 const AUTH_MESSAGE = "Log in to Vaultbreak";
 
@@ -129,7 +129,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const { state, stats, params } = await liveOrCached(g);
     return {
       id: g.id, name: g.name, vault_account: g.vault_account, owner: state.owner, status: state.status, created_at: g.created_at,
-      art: state.status === "Defeated" ? "defeated" : stats.streak >= VETERAN_STREAK ? "veteran" : "armed",
+      art: artState(state.status, Number(stats.streak)),
       pot: state.pot, min_fee: params.min_fee, turns_max: params.turns_max, session_ttl_ms: params.session_ttl_ms,
       stats, prompt_hash: g.prompt_hash, revealed: !!g.revealed, model: g.model, danger_mode: !!g.danger_mode,
       ...(g.registry ? { nft: { registry: g.registry, token_id: g.id, owner: state.owner } } : {}),
@@ -173,6 +173,22 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
     return c.json(await publicGuardian(g, true));
   });
+  // The card art v2 (SVG, text as paths) drawn from live data: state from the vault, number = order of creation.
+  const svgHeaders = { "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=20, s-maxage=20, stale-while-revalidate=600", "access-control-allow-origin": "*" };
+  app.get("/guardians/:id/image.svg", async (c) => {
+    const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
+    const pg = await publicGuardian(g);
+    const num = (db.prepare("SELECT COUNT(*) AS n FROM guardians WHERE pending=0 AND (created_at < ? OR (created_at = ? AND id <= ?))").get(g.created_at, g.created_at, g.id) as any).n as number;
+    const n = (v: number | string) => Number(v).toLocaleString("en-US");
+    return c.body(cardSvg({ state: pg.art as ArtState, num, name: pg.name, pot: potText(pg.pot), attempts: n(pg.stats.attempts), streak: n(pg.stats.streak), blocked: n(pg.stats.blocked_reported), wins: n(pg.stats.wins), hash: hashText(pg.prompt_hash) }), 200, svgHeaders);
+  });
+  // A preview of a card that does not exist yet (the Create page): numbers come from the query, nothing is read from chain.
+  app.get("/art/preview.svg", (c) => {
+    const q = (k: string, d: string) => String(c.req.query(k) ?? d).slice(0, 40);
+    const st = (["armed", "veteran", "defeated"].includes(q("state", "armed")) ? q("state", "armed") : "armed") as ArtState;
+    const pot = Number(c.req.query("pot") ?? 0); const potStr = Number.isFinite(pot) ? pot.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "0.00";
+    return c.body(cardSvg({ state: st, num: Number(c.req.query("num") ?? 0) || 0, name: q("name", "Your Guardian"), pot: potStr, attempts: "0", streak: "0", blocked: "0", wins: "0", hash: q("hash", "------…----") }), 200, svgHeaders);
+  });
   app.get("/guardians/:id/metadata.json", async (c) => {
     const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
     if (g.pending) return c.json({ error: "not found" }, 404);
@@ -180,7 +196,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const potNear = Number(BigInt(pg.pot) / 10n ** 20n) / 1e4;
     return c.json({
       title: `Guardian ${pg.name}`,
-      image: `${cfg.publicBaseUrl}/assets/emblem-${pg.art}.webp`, external_url: `${cfg.publicBaseUrl}/guardian/${pg.id}`,
+      image: `${cfg.publicBaseUrl}/api/guardians/${pg.id}/image.svg`, external_url: `${cfg.publicBaseUrl}/guardian/${pg.id}`,
       description: `A Vaultbreak AI guardian. Status ${pg.status}${pg.art === "veteran" ? " (veteran: " + VETERAN_STREAK + "+ attempts survived in a row)" : ""}, pot ${potNear} NEAR, ${pg.stats.attempts} attempts, ${pg.stats.wins} wins, streak ${pg.stats.streak}.`,
       attributes: [
         { trait_type: "status", value: pg.status }, { trait_type: "tier", value: pg.art }, { trait_type: "pot_near", value: potNear },
@@ -523,6 +539,14 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       const text = await r.text(); const h = sha256Hex(text); if (snapHash.get(id) === h) return;
       const put = await fetch(`https://blob.vercel-storage.com/snapshots/${id}.json`, { method: "PUT", body: text, headers: { authorization: `Bearer ${blobToken}`, "x-api-version": "7", "x-add-random-suffix": "0", "x-allow-overwrite": "1", "x-content-type": "application/json", "x-cache-control-max-age": "60" } });
       if (put.ok) snapHash.set(id, h);
+      const img = await app.request(`/guardians/${id}/image.svg`);
+      if (img.ok) {
+        const svg = await img.text(); const hs = sha256Hex(svg);
+        if (snapHash.get(`${id}.svg`) !== hs) {
+          const p2 = await fetch(`https://blob.vercel-storage.com/snapshots/${id}.svg`, { method: "PUT", body: svg, headers: { authorization: `Bearer ${blobToken}`, "x-api-version": "7", "x-add-random-suffix": "0", "x-allow-overwrite": "1", "x-content-type": "image/svg+xml", "x-cache-control-max-age": "60" } });
+          if (p2.ok) snapHash.set(`${id}.svg`, hs);
+        }
+      }
     } catch { /* best effort: the next change or the minute timer retries */ }
   };
   const scheduleSnapshot = (id: string) => { if (!blobToken || snapTimers.has(id)) return; snapTimers.set(id, setTimeout(() => { snapTimers.delete(id); void snapshotOne(id); }, 2500)); };

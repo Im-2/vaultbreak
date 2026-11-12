@@ -48,20 +48,20 @@ html[data-motion="off"] .hero__kb { animation: none; }
 .how--stack .collage { height: 300px; } .how--stack .collage__main, .how--stack .collage__small { opacity: 1; transform: none; }
 .how__item { display: grid; gap: 12px; }
 
-/* =========================================================== horizontal gallery */
-.gallery { position: relative; background: linear-gradient(180deg, var(--bg) 0%, #ececec 100%); }
-.gallery__pin { position: sticky; top: var(--nav-h); height: calc(100vh - var(--nav-h)); overflow: hidden; padding: clamp(24px, 5vh, 64px) 0 0 var(--gutter); display: flex; flex-direction: column; gap: clamp(20px, 4vh, 48px); }
-.gallery__title { max-width: var(--max); }
-.gallery__track { display: flex; gap: clamp(18px, 2.4vw, 36px); width: max-content; padding-right: var(--gutter); will-change: transform; }
-.gtile { position: relative; flex: none; width: min(430px, 78vw); height: min(60vh, 600px); border-radius: var(--radius); overflow: hidden; background: var(--card-dark); color: #e9ecf4; display: flex; flex-direction: column; }
-.gtile__art { flex: 1; min-height: 0; display: grid; place-items: center; padding: 18px 18px 0; background: radial-gradient(circle at 50% 46%, var(--g, #1a2030) 0%, transparent 62%); }
-.gtile--veteran { --g: rgba(54,214,189,.18); } .gtile--armed { --g: rgba(227,167,47,.2); } .gtile--defeated { --g: rgba(229,72,77,.2); }
-.gtile__art img { width: 100%; height: 100%; object-fit: contain; }
-.gtile figcaption { display: grid; gap: 4px; padding: 14px 22px 22px; }
-.gtile figcaption small { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: #7e8798; }
+/* =========================================================== three states (centered) */
+.gallery { position: relative; padding: clamp(64px, 9vw, 130px) var(--gutter); background: linear-gradient(180deg, var(--bg) 0%, #ececec 100%); }
+.gallery__inner { max-width: var(--max); margin: 0 auto; display: grid; gap: clamp(28px, 4vw, 56px); justify-items: center; }
+.gallery__title { text-align: center; display: grid; gap: 10px; justify-items: center; }
+.gallery__row { width: 100%; display: grid; grid-template-columns: repeat(3, minmax(0, 420px)); justify-content: center; gap: clamp(18px, 2.4vw, 36px); }
+.gtile { margin: 0; display: grid; gap: 18px; align-content: start; justify-items: center; text-align: center; min-width: 0; }
+.gtile__card { width: 100%; aspect-ratio: 600 / 840; border-radius: 4.4% / 3.1%; overflow: hidden; box-shadow: 0 30px 70px -34px rgba(0,0,0,.55); background: #0b0d12; }
+.gtile__card img { display: block; width: 100%; height: 100%; }
+.gtile figcaption { display: grid; gap: 4px; justify-items: center; }
+.gtile figcaption small { font-size: 11px; letter-spacing: .2em; text-transform: uppercase; color: var(--muted); }
 .gtile figcaption strong { font-weight: 300; font-size: 24px; letter-spacing: -.01em; }
-.gtile figcaption span { font-size: 13px; color: #a9b1c2; display: flex; align-items: center; gap: 8px; }
-.gtile figcaption a { margin-top: 6px; font-size: 13px; color: #fafafa; text-decoration: underline; text-underline-offset: 4px; width: max-content; }
+.gtile figcaption span { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; justify-content: center; gap: 8px; }
+.gtile figcaption a { margin-top: 6px; font-size: 13px; text-decoration: underline; text-underline-offset: 4px; }
+@media (max-width: 900px) { .gallery__row { grid-template-columns: minmax(0, 400px); } }
 
 /* =========================================================== guardians list */
 .list { position: relative; padding: clamp(64px, 9vw, 130px) var(--gutter) clamp(48px, 6vw, 90px); background: linear-gradient(180deg, #ececec 0%, var(--bg) 20%, #ececec 100%); }
@@ -75,7 +75,7 @@ html[data-motion="off"] .hero__kb { animation: none; }
 .lrow__meta { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; }
 .lrow__pot { text-align: right; font-weight: 300; font-size: clamp(22px, 2.6vw, 36px); letter-spacing: -.02em; font-variant-numeric: tabular-nums; } .lrow__pot small { font-size: 12px; color: var(--muted); }
 .hovertile { position: fixed; left: 0; top: 0; z-index: 70; width: 230px; aspect-ratio: 1; border-radius: var(--radius); overflow: hidden; background: var(--card-dark); pointer-events: none; opacity: 0; scale: .8; transition: opacity .25s, scale .35s var(--ease); box-shadow: 0 30px 70px -30px rgba(0,0,0,.6); }
-.hovertile.is-on { opacity: 1; scale: 1; } .hovertile img { width: 100%; height: 100%; object-fit: cover; }
+.hovertile.is-on { opacity: 1; scale: 1; } .hovertile img { width: 100%; height: 100%; object-fit: contain; }
 
 /* =========================================================== CTA bar */
 .cta { padding: clamp(40px, 6vw, 96px) var(--gutter) clamp(72px, 9vw, 130px); background: linear-gradient(180deg, #ececec, var(--bg)); }
@@ -94,8 +94,6 @@ html[data-motion="off"] .hero__kb { animation: none; }
   .toggle { display: none; }
   .hero__top { grid-template-columns: 1fr; } .hero__title { max-width: 12ch; }
   .hero__strip { height: calc(30vh + var(--p) * 20vh); }
-  .gallery { height: auto !important; } .gallery__pin { position: static; height: auto; padding-bottom: 56px; }
-  .gallery__track { width: auto; overflow-x: auto; padding-bottom: 8px; scroll-snap-type: x mandatory; margin-right: 0; padding-right: var(--gutter); } .gtile { scroll-snap-align: start; height: 480px; }
   .lrow { grid-template-columns: 34px minmax(0, 1fr); } .lrow__meta { display: none; } .lrow__pot { grid-column: 2; text-align: left; margin-top: -6px; }
   .cta__bar { border-radius: 36px; } .footer__cols { grid-template-columns: 1fr; gap: 28px; }
   .hovertile { display: none; }

@@ -10,8 +10,4 @@ for (const [file, name] of Object.entries(photos)) {
   const info = await sharp(`${src}${file}`).rotate().resize({ width: 2000, withoutEnlargement: true }).jpeg({ quality: 82, mozjpeg: true }).toFile(`${out}${name}.jpg`);
   console.log(name, info.width + "x" + info.height, Math.round(info.size / 1024) + "KB");
 }
-// emblem = the round vault in the upper part of the 1200x1680 card (excludes the baked header, title and numbers)
-for (const state of ["armed", "veteran", "defeated"]) {
-  const info = await sharp(`${src}nfts/${state}.png`).extract({ left: 135, top: 165, width: 930, height: 930 }).resize(720, 720).webp({ quality: 88 }).toFile(`${out}emblem-${state}.webp`);
-  console.log("emblem-" + state, info.width + "x" + info.height, Math.round(info.size / 1024) + "KB");
-}
+// (The NFT card art now comes from the API: server/src/art.ts renders it as SVG; the old emblem crops are gone.)

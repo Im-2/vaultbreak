@@ -106,3 +106,8 @@ input:focus, textarea:focus { border-color: var(--ink); box-shadow: 0 0 0 3px rg
 .pw__toggle { position: relative; display: block; margin: -46px 6px 0 auto; width: 38px; height: 38px; transform: translateY(-1px); border: 0; background: transparent; border-radius: 10px; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
 .pw__toggle:hover { color: var(--ink); }
 .pw__toggle:focus-visible { outline: 2px solid var(--ink); outline-offset: 1px; }
+
+/* Guardian card (v2 art): 600 x 840 SVG */
+.nftcard { aspect-ratio: 600 / 840; width: 100%; border-radius: 4.4%/3.1%; overflow: hidden; background: #0b0d12; box-shadow: 0 18px 50px -26px rgba(0,0,0,.55); transition: transform .5s var(--ease), box-shadow .5s var(--ease); }
+.nftcard img { display: block; width: 100%; height: 100%; }
+.nft-link:hover .nftcard { transform: translateY(-6px); box-shadow: 0 30px 70px -26px rgba(0,0,0,.6); }

@@ -11,7 +11,7 @@ export function SignInDialog() {
   const [busy, setBusy] = useState(false);
   const [show, setShow] = useState(false); // passphrase visibility: display only; the value is sent exactly as typed
   const first = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (dialog) { setErr(null); setShow(false); setTimeout(() => first.current?.focus(), 50); } }, [dialog]);
+  useEffect(() => { if (dialog) { setErr(null); setShow(false); setTimeout(() => { if (!document.activeElement?.closest(".modal__card")) first.current?.focus(); }, 50); } }, [dialog]);
   useEffect(() => { if (!dialog) return; const k = (e: KeyboardEvent) => e.key === "Escape" && closeDialog(); window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [dialog, closeDialog]);
   if (!dialog) return null;
   const submit = async (e: FormEvent) => {

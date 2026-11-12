@@ -7,13 +7,16 @@ const url = (process.argv[2] ?? "").replace(/\/+$/, "");
 if (!url) throw new Error("usage: publish-site-files.mjs <backend url>");
 writeFileSync("web/api/_backend.js", `// Written by scripts/publish-site-files.mjs on every deploy.\nexport default { url: ${JSON.stringify(url)} };\n`);
 const prev = existsSync("web/api/_snapshots.js") ? readFileSync("web/api/_snapshots.js", "utf8") : "";
-let snaps = {};
-try { snaps = JSON.parse(/export default (\{[\s\S]*\});?\s*$/.exec(prev)?.[1] ?? "{}"); } catch { /* start empty */ }
+let snaps = { meta: {}, svg: {} };
+try { const parsed = JSON.parse(/export default ({[sS]*});?s*$/.exec(prev)?.[1] ?? "{}"); snaps = { meta: parsed.meta ?? {}, svg: parsed.svg ?? {} }; } catch { /* start empty */ }
 try {
   const list = await (await fetch(`${url}/guardians`, { signal: AbortSignal.timeout(15000) })).json();
   for (const g of list) {
-    try { const m = await (await fetch(`${url}/guardians/${g.id}/metadata.json`, { signal: AbortSignal.timeout(15000) })).json(); if (m?.title) snaps[g.id] = m; } catch { /* keep the previous snapshot */ }
+    try { const m = await (await fetch(`${url}/guardians/${g.id}/metadata.json`, { signal: AbortSignal.timeout(15000) })).json(); if (m?.title) snaps.meta[g.id] = m; } catch { /* keep the previous snapshot */ }
+    try { const t = await (await fetch(`${url}/guardians/${g.id}/image.svg`, { signal: AbortSignal.timeout(20000) })).text(); if (t.trimStart().startsWith("<svg")) snaps.svg[g.id] = t; } catch { /* keep the previous snapshot */ }
   }
-  console.log(`snapshots: ${Object.keys(snaps).length} Guardians`);
-} catch (e) { console.log(`backend not reachable (${e.message}); keeping ${Object.keys(snaps).length} existing snapshots`); }
-writeFileSync("web/api/_snapshots.js", `// Written by scripts/publish-site-files.mjs on every deploy: last known metadata per Guardian.\nexport default ${JSON.stringify(snaps, null, 1)};\n`);
+  console.log(`snapshots: ${Object.keys(snaps.meta).length} metadata, ${Object.keys(snaps.svg).length} SVG`);
+} catch (e) { console.log(`backend not reachable (${e.message}); keeping ${Object.keys(snaps.meta).length} existing snapshots`); }
+writeFileSync("web/api/_snapshots.js", `// Written on every deploy by scripts/publish-site-files.mjs: last known metadata and card SVG per Guardian.
+export default ${JSON.stringify(snaps)};
+`);

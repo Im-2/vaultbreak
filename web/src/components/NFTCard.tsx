@@ -1,28 +1,16 @@
 import { Link } from "react-router-dom";
-import type { Guardian } from "../lib/api";
-import { near, shortHash } from "../lib/format";
+import { API, type Guardian } from "../lib/api";
 
-/**
- * The Guardian "NFT" card. The art is the supplied emblem (cropped; its baked-in demo numbers are NOT used);
- * every figure on the card is live data from the vault.
- */
-export function NFTCard({ g, size = "sm", to }: { g: Guardian; size?: "sm" | "lg"; to?: string }) {
+/** The URL of a Guardian's card art (SVG, drawn from live vault data; state: armed, veteran or defeated). The query only busts the cache when numbers change. */
+export const cardSrc = (g: Pick<Guardian, "id" | "status" | "pot" | "stats">) => `${API}/guardians/${g.id}/image.svg?v=${g.status}-${g.stats.attempts}-${g.stats.streak}-${g.stats.blocked_reported}-${g.stats.wins}-${g.pot.length}${g.pot.slice(0, 6)}`;
+
+/** A Guardian card: the art itself carries the name, state, pot, stats and sealed-prompt hash, so there is one source of truth. */
+export function NFTCard({ g, size = "sm", to, src }: { g: Guardian; size?: "sm" | "lg"; to?: string; src?: string }) {
+  const label = `${g.name}: ${g.art === "defeated" ? "pot released" : g.art === "veteran" ? "armed, veteran" : "armed"}`;
   const body = (
-    <article className={`nft nft--${g.art} nft--${size}`}>
-      <header className="nft__head"><span>VAULTBREAK</span><span>GUARDIAN · {g.id.toUpperCase().slice(0, 14)}</span></header>
-      <div className="nft__art"><img src={`/assets/emblem-${g.art}.webp`} alt={`${g.name} vault emblem`} loading="lazy" draggable={false} /></div>
-      <h3 className="nft__name">{g.name}</h3>
-      <div className={`nft__badge nft__badge--${g.status.toLowerCase()}`}><i />{g.art === "veteran" && g.status === "Armed" ? "ARMED · VETERAN" : g.status.toUpperCase()}</div>
-      <div className="nft__pot">
-        <div><small>POT</small><strong>{near(g.pot)} NEAR</strong></div>
-        <div className="nft__hash"><small>SEALED PROMPT</small><span>{shortHash(g.prompt_hash)}</span></div>
-      </div>
-      <dl className="nft__stats">
-        <div><dt>ATTEMPTS</dt><dd>{g.stats.attempts.toLocaleString("en-US")}</dd></div>
-        <div><dt>STREAK</dt><dd className="acc">{g.stats.streak.toLocaleString("en-US")}</dd></div>
-        <div><dt>BLOCKED</dt><dd>{g.stats.blocked_reported.toLocaleString("en-US")}</dd></div>
-      </dl>
+    <article className={`nftcard nftcard--${size}`}>
+      <img src={src ?? cardSrc(g)} alt={label} width={600} height={840} loading="lazy" decoding="async" draggable={false} />
     </article>
   );
-  return to ? <Link to={to} className="nft-link">{body}</Link> : body;
+  return to ? <Link to={to} className="nft-link" aria-label={label}>{body}</Link> : body;
 }

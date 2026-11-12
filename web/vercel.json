@@ -5,6 +5,10 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/guardians/:id/image.svg",
+      "destination": "/api/image?id=:id"
+    },
+    {
       "source": "/api/guardians/:id/metadata.json",
       "destination": "/api/metadata?id=:id"
     },

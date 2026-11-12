@@ -5,7 +5,7 @@ import { CreatePreview } from "../components/Previews";
 import { NFTCard } from "../components/NFTCard";
 import { Pill } from "../components/Pill";
 import { ScrambleText } from "../components/ScrambleText";
-import { api, ApiError, type Guardian } from "../lib/api";
+import { API, api, ApiError, type Guardian } from "../lib/api";
 import { near, netNote } from "../lib/format";
 import { useAuth, useConfig } from "../lib/hooks";
 
@@ -98,7 +98,7 @@ function Form() {
 
       <aside className="create__preview" aria-label="Live preview">
         <small className="label">Live preview · updates as you type</small>
-        <div className="create__card"><NFTCard g={preview} size="lg" /></div>
+        <div className="create__card"><NFTCard g={preview} size="lg" src={`${API}/art/preview.svg?name=${encodeURIComponent(name || "Your Guardian")}&pot=${seed}&state=armed&hash=${preview.prompt_hash.slice(0, 6)}…${preview.prompt_hash.slice(-4)}`} /></div>
         <p className="fine muted">The artwork follows the Guardian's state: armed, veteran after a long streak, defeated if it falls. Your numbers here are the ones it will start with.</p>
       </aside>
     </div>
