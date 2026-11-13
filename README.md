@@ -12,6 +12,8 @@
 3. The reply streams, then **Pot released** appears with a **nearblocks transaction link**: open it, the pot moved from the vault to your account.
 4. Open **The Warden** (a strong Guardian) and press **Prove it**: its vault, its single restricted key and its attempts.
 
+**Known issue (2026-11-13): new sign-ups are paused.** The play-money faucet account is nearly empty (`vbreak-t2funder-1109.testnet`, about 8.7 testnet NEAR; it refuses new accounts below 10.5), so a brand-new name gets "The demo's play-money faucet is empty right now". Existing names still sign in. The operator (or anyone) can refill it by sending testnet NEAR to `vbreak-t2funder-1109.testnet`. The code path is tested; the live click path in step 1 works again once it is refilled.
+
 **One command that proves no full-access key exists** (any machine with `curl`; reads the live Warden vault straight from a public RPC):
 
 ```bash
@@ -59,7 +61,7 @@ Status: **Layers 1 (core), 3 (NFT registry + factory) and 4 (agents + swarm pool
 
 **https://tryvaultbreak.vercel.app** (NEAR **testnet**, play money).
 
-**Sign in (30 seconds, no wallet):** press **Sign in** (top right, or on any page that asks), type any name and any passphrase of 6+ characters (the eye button inside the field shows or hides it; it is hidden by default and only changes the display, never what is sent or hashed), press **Continue**. The server opens a play account on testnet and funds it with 2.5 testnet NEAR. Signing in again with the same name and passphrase returns to the same account. This sign-in is **demo-grade**: the server holds the key, so do not reuse a real password.
+**Sign in (30 seconds, no wallet):** press **Sign in** (top right, or on any page that asks), type any name and any passphrase of 6+ characters (the eye button inside the field shows or hides it; it is hidden by default and only changes the display, never what is sent or hashed), press **Continue**. The server opens a play account on testnet and funds it with 2.5 testnet NEAR. Signing in again with the same name and passphrase returns to the same account. (If a *new* name is refused with "the play-money faucet is empty", see the known issue at the top; existing names still work.) This sign-in is **demo-grade**: the server holds the key, so do not reuse a real password.
 
 Do X, see Y, tab by tab:
 
@@ -119,7 +121,7 @@ Open http://localhost:5173. What `npm run dev` does (`scripts/dev-stack.ts`): st
 
 **Zero-wallet play:** click *Sign in*, pick a name and a passphrase (a show/hide eye button is inside the field). The server opens a custodial play account, funds it with play credits, and pays the entry fee from it when you press *Pay and start*. You never see keys, gas or wallet pop-ups. These custodial play accounts are **built and are the main sign-in**; they are **demo-grade** (the server holds the key; do not reuse a real password or put real funds in it).
 
-**Pages:** landing (`/`), arena (`/arena`), Guardian page with live SSE chat, blocked-call and win states and the Prove-it drawer (`/guardian/:id`), Create (`/create`), My Guardians (`/me`), Swarms (`/swarms`), Agents (`/agents`), Proofs (`/proofs`). Screenshots at desktop (1440) and phone (390) widths are in [docs/screens](docs/screens/); regenerate with `node web/scripts/screenshots.mjs` while the stack runs.
+**Pages:** landing (`/`), arena (`/arena`), Guardian page with live SSE chat, blocked-call and win states and the Prove-it drawer (`/guardian/:id`), Create (`/create`), My Guardians (`/me`), Swarms (`/swarms`), Agents (`/agents`), Proofs (`/proofs`). Live checks (Playwright): `web/scripts/readme-walk.mjs` (the Do-X-see-Y rows), `live-e2e.mjs`, `live-transfer-e2e.mjs`, `art-verify.mjs`, `offline-test.mjs`. Screenshots at desktop (1440) and phone (390) widths are in [docs/screens](docs/screens/); regenerate with `node web/scripts/screenshots.mjs` while the stack runs.
 
 API endpoints added for the UI: `GET /config`, `GET /stats`, `POST /custodial/signin`, `POST /custodial/topup`, `GET /me`, `GET /me/guardians`, `POST /me/guardians` (mint for a play account), `POST /me/guardians/:id/claim`, `GET /me/transfers`, `POST /me/transfers/:id/approve|reject`, `GET /me/transfer-lookup`, `POST /guardians/:id/transfer`, `GET /guardians/:id/transfer-status`, `POST /guardians/:id/play` (the server pays the fee from the player's custodial account and opens the session), `GET /guardians/:id/prove`, `GET /guardians/:id/image.svg`, `GET /art/preview.svg`, `/me/pools/*` (play-account pool actions).
 
