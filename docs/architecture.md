@@ -5,9 +5,9 @@
 ```bash
 curl -s https://test.rpc.fastnear.com -H 'content-type: application/json' -d '{
  "jsonrpc":"2.0","id":1,"method":"query",
- "params":{"request_type":"view_access_key_list","finality":"final","account_id":"strong.vbreak-deployer-1109.testnet"}}'
+ "params":{"request_type":"view_access_key_list","finality":"final","account_id":"warden.registry.vbreak-t2funder-1109.testnet"}}'
 ```
-Expected: exactly one key whose permission is `{"FunctionCall":{"method_names":["release","close_session"],"receiver_id":"<the vault>", "allowance": ...}}` and no `"FullAccess"`.
+Expected (live Warden vault; the older Layer 1 vault `strong.vbreak-deployer-1109.testnet` gives the same shape): exactly one key whose permission is `{"FunctionCall":{"method_names":["release","close_session"],"receiver_id":"<the vault>", "allowance": ...}}` and no `"FullAccess"`.
 
 ## Key flow
 
