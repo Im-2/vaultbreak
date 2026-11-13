@@ -167,6 +167,12 @@ export class GuardianRuntime {
     return sha256Hex(JSON.stringify(turns));
   }
 
+  /** Closes an on-chain Open session that has no database row (e.g. the database was restored from an older backup), via the same close_session call. */
+  async closeOrphan(g: GuardianRow, onchainId: number): Promise<string | null> {
+    const r: any = await retryTransport(() => this.signer(g).callFunctionRaw({ contractId: g.vault_account, methodName: "close_session", args: { session_id: String(onchainId), transcript_hash: "00".repeat(32), blocked_attempts: 0 }, gas: 100_000_000_000_000n }));
+    return (r.transaction?.hash as string) ?? null;
+  }
+
   /** Closes an Open session on-chain as Failed, committing the transcript hash and blocked-attempt count. */
   async close(g: GuardianRow, s: SessionRow, emit: Emit): Promise<void> {
     if (s.status !== "open") return;

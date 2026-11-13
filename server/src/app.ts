@@ -28,7 +28,7 @@ export interface CustodialCfg {
   /** Public testnet: NEAR is scarce, so top-ups are small, capped per player, and signups stop when the funder runs low. */
   topupNear?: number; topupBelowNear?: number; maxTopups?: number; reserveNear?: number;
 }
-export interface UiInfo { network?: string; explorer?: string; demo?: boolean }
+export interface UiInfo { network?: string; explorer?: string; demo?: boolean; /** false: do not run the session cleanup job in this app instance (the seeding instance) */ sweep?: boolean }
 
 export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: AppDeps & { custodial?: CustodialCfg; ui?: UiInfo }) {
   const app = new Hono();
@@ -769,17 +769,70 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     if (/^[a-z0-9][a-z0-9._-]*\.[a-z0-9._-]+$/.test(t.toLowerCase()) && (await accountExists(t.toLowerCase()))) return { account: t.toLowerCase(), label: null };
     return null;
   };
-  /** True when an attempt on this Guardian is still Open (checked on-chain, and stale rows are closed out). */
-  const hasOpenSession = async (g: any): Promise<boolean> => {
-    const rows = db.prepare("SELECT id, onchain_session_id FROM sessions WHERE guardian_id=? AND status='open'").all(g.id) as any[];
-    let open = false;
-    for (const r of rows) {
-      const s: any = await view(p, g.vault_account, "get_session", { session_id: String(r.onchain_session_id) }).catch(() => ({ status: "Open" }));
-      if (s?.status === "Open") open = true; else db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(s?.status ?? "failed").toLowerCase(), r.id);
+  /**
+   * ONE definition of "active session", used by the transfer guard (humans, agent keys, approvals) and by the cleanup job:
+   * the vault says the session is Open AND the current time is before its expires_at (at most the vault's TTL, 10 minutes by default).
+   * The chain is the truth. When the database and the chain disagree the chain wins and the database row is corrected.
+   * Only if the chain cannot be read do we fall back to the database (started_at + the TTL).
+   */
+  const ttlOf = (g: any): number => { try { return Number(JSON.parse(g.state_json)?.params?.session_ttl_ms ?? 600_000); } catch { return 600_000; } };
+  const activeSession = async (g: any): Promise<{ active: boolean; expires_at: number | null }> => {
+    const t = Date.now(); let best: { active: boolean; expires_at: number | null } = { active: false, expires_at: null };
+    const consider = (exp: number) => { if (t < exp && (!best.active || exp > (best.expires_at ?? 0))) best = { active: true, expires_at: exp }; };
+    const rows = db.prepare("SELECT id, onchain_session_id, started_at FROM sessions WHERE guardian_id=? AND status='open'").all(g.id) as any[];
+    let next: number | null = null;
+    try { next = Number(((await view(p, g.vault_account, "get_state")) as any).next_session_id); } catch { next = null; }
+    if (next === null) { const ttl = ttlOf(g); for (const r of rows) consider(r.started_at + ttl); return best; }
+    const ids = new Set<number>(rows.map((r) => Number(r.onchain_session_id)));
+    for (let i = Math.max(1, next - 8); i < next; i++) ids.add(i); // sessions the database may not know about
+    for (const id of ids) {
+      const sv: any = await view(p, g.vault_account, "get_session", { session_id: String(id) }).catch(() => undefined);
+      if (sv === undefined) { const row = rows.find((r) => Number(r.onchain_session_id) === id); if (row) consider(row.started_at + ttlOf(g)); continue; }
+      if (sv && sv.status === "Open") consider(Number(sv.expires_at));
+      else for (const r of rows) if (Number(r.onchain_session_id) === id) db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(sv?.status ?? "failed").toLowerCase(), r.id);
     }
-    return open;
+    return best;
   };
-  const OPEN_MSG = "A player has an open attempt on this Guardian. Transfers are blocked until it ends (it can take up to 10 minutes), so nobody loses a pot mid-attempt.";
+  /**
+   * Cleanup job (on start and every minute): any session that is still Open on-chain after its expiry, or that the database still
+   * calls open after the chain closed it, is brought to a closed state. Expired/abandoned sessions are closed through the normal
+   * close_session path (the Guardian's own function-call key), so the chain and the database end up in the same state.
+   */
+  let sweeping = false;
+  const sweepSessions = async (): Promise<number> => {
+    if (sweeping) return 0; sweeping = true; let closed = 0;
+    try {
+      for (const g of db.prepare("SELECT * FROM guardians WHERE pending=0").all() as any[]) {
+        try {
+          const next = Number(((await view(p, g.vault_account, "get_state")) as any).next_session_id);
+          const rows = db.prepare("SELECT * FROM sessions WHERE guardian_id=? AND status='open'").all(g.id) as any[];
+          const ids = new Set<number>(rows.map((r) => Number(r.onchain_session_id)));
+          for (let i = Math.max(1, next - 8); i < next; i++) ids.add(i);
+          for (const id of ids) {
+            const sv: any = await view(p, g.vault_account, "get_session", { session_id: String(id) }).catch(() => undefined);
+            const row = rows.find((r) => Number(r.onchain_session_id) === id);
+            if (!sv) continue;
+            if (sv.status !== "Open") { if (row) db.prepare("UPDATE sessions SET status=? WHERE id=?").run(String(sv.status).toLowerCase(), row.id); continue; }
+            if (Date.now() <= Number(sv.expires_at)) continue; // still live: leave it alone
+            try {
+              if (row) await runtime.close(g, row, () => {}); else await runtime.closeOrphan(g, id);
+              closed++; liveCache.delete(g.id); scheduleSnapshot(g.id);
+              console.log(`session cleanup: closed expired session ${id} on ${g.id}`);
+            } catch (e) { console.log(`session cleanup: could not close ${g.id}#${id}: ${String((e as any)?.message ?? e).slice(0, 100)}`); }
+          }
+        } catch { /* chain unreadable for this Guardian: try again next minute */ }
+      }
+    } finally { sweeping = false; }
+    return closed;
+  };
+  if (process.env.SESSION_SWEEP !== "off" && ui?.sweep !== false) { setTimeout(() => void sweepSessions(), 4000); (setInterval(() => void sweepSessions(), 60_000) as any).unref?.(); }
+  // For the UI: is a transfer blocked right now, and until when?
+  app.get("/guardians/:id/transfer-status", async (c) => {
+    const g = getG(c.req.param("id")); if (!g || g.pending) return c.json({ error: "not found" }, 404);
+    const a = await activeSession(g);
+    return c.json({ blocked: a.active, expires_at: a.expires_at, server_now: Date.now() });
+  });
+  const OPEN_MSG = "A player has an open attempt on this Guardian. Transfers are blocked until it ends (at most 10 minutes), so nobody loses a pot mid-attempt.";
   /** Runs the transfer as `from` (must own the Guardian). Returns the tx hash or throws { status, message }. */
   const performTransfer = async (g: any, from: string, to: { account: string; label: string | null }): Promise<string> => {
     const fail = (status: number, message: string) => Object.assign(new Error(message), { status });
@@ -789,7 +842,8 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     const st = (await liveOrCached(g)).state;
     if (st.status !== "Armed") throw fail(409, "a defeated Guardian cannot be transferred from here");
     if (st.owner !== from) throw fail(403, "you do not own this Guardian");
-    if (await hasOpenSession(g)) throw fail(409, OPEN_MSG);
+    const act = await activeSession(g);
+    if (act.active) throw Object.assign(fail(409, OPEN_MSG), { expires_at: act.expires_at });
     let tx = "";
     try {
       const r: any = await retryTransport(() => signer.callFunctionRaw({ contractId: cfg.registry!, methodName: "nft_transfer", args: { receiver_id: to.account, token_id: g.id }, deposit: 1n, gas: 150_000_000_000_000n }));
@@ -840,7 +894,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       return c.json({ status: "done", transfer_id: id, tx, to: to.account });
     } catch (e: any) {
       if (key) logTransfer(g, acct, to, key.id, "failed", null, String(e.message).slice(0, 200));
-      return c.json({ error: e.message }, (e.status ?? 409) as any);
+      return c.json({ error: e.message, expires_at: e.expires_at ?? null, server_now: Date.now() }, (e.status ?? 409) as any);
     }
   });
 
@@ -863,7 +917,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
       const tx = await performTransfer(g, acct, { account: t.to_account, label: t.to_label });
       db.prepare("UPDATE nft_transfers SET status='done', tx=?, decided_at=? WHERE id=?").run(tx, now(), t.id);
       return c.json({ status: "done", tx });
-    } catch (e: any) { return c.json({ error: e.message }, (e.status ?? 409) as any); }
+    } catch (e: any) { return c.json({ error: e.message, expires_at: e.expires_at ?? null, server_now: Date.now() }, (e.status ?? 409) as any); }
   });
 
   // ---- swarm pools for custodial players (the contract is the source of truth)
@@ -943,5 +997,5 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
   });
 
   app.get("/health", (c) => c.json({ ok: true }));
-  return { app, runtime };
+  return { app, runtime, sweepSessions, activeSession };
 }

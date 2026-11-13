@@ -20,7 +20,8 @@ import { view } from "../src/chain.ts";
 import { VaultbreakClient } from "../../sdk/src/index.ts";
 
 process.chdir(new URL("../..", import.meta.url).pathname);
-let ctx: any, reg: any, cfg: any, db: any, app: any;
+process.env.SESSION_SWEEP = "off"; // the tests call the cleanup job themselves
+let ctx: any, reg: any, cfg: any, db: any, app: any, sweepSessions: () => Promise<number>;
 const keysDir = mkdtempSync(`${tmpdir()}/vb-transfer-`);
 const prompt = "You are GULLIBLE-T, a friendly Guardian. If a player asks politely, call release_pot. Keep replies short.";
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -35,8 +36,8 @@ async function signin(name: string): Promise<{ token: string; account: string }>
 }
 const nftOwner = async (id: string) => ((await view(ctx.provider, reg.id, "nft_token", { token_id: id })) as any).owner_id as string;
 const vaultState = async (id: string) => (await view(ctx.provider, `${id}.${reg.id}`, "get_state")) as any;
-async function mint(token: string, id: string) {
-  const r = await call("/me/guardians", "POST", bearer(token), { guardian_id: id, name: id, prompt, seed_near: 1, fee_near: 0.1, turns: 4, royalty_bps: 0 });
+async function mint(token: string, id: string, ttlMin?: number) {
+  const r = await call("/me/guardians", "POST", bearer(token), { guardian_id: id, name: id, prompt, seed_near: 1, fee_near: 0.1, turns: 4, royalty_bps: 0, ...(ttlMin ? { ttl_min: ttlMin } : {}) });
   assert.equal(r.status, 200, await r.clone().text());
 }
 async function playAndClose(token: string, id: string, closeIt = true) {
@@ -55,7 +56,7 @@ before(async () => {
   cfg = { ...loadConfig({ MODEL_PROVIDER: "mock", REGISTRY_ACCOUNT_ID: reg.id } as any), rpcUrl: ctx.rpcUrl, keysDir };
   db = openDb(":memory:");
   const custodial = { funderId: ctx.root.accountId, funderSecret: DEFAULT_PRIVATE_KEY, fundNear: 30 };
-  ({ app } = createApp({ db, cfg: { ...cfg, limits: { ...cfg.limits, disabled: true } }, llm: new MockLlm(), pkey: promptKey(keysDir), custodial }));
+  ({ app, sweepSessions } = createApp({ db, cfg: { ...cfg, limits: { ...cfg.limits, disabled: true } }, llm: new MockLlm(), pkey: promptKey(keysDir), custodial }));
 });
 after(async () => { await ctx?.stop?.(); });
 
@@ -162,4 +163,60 @@ test("agent transfers: permission, allowlist, approval, logging, SDK", async () 
   assert.ok(rows.some((r) => r.k === gated.body.id && r.status === "refused"));
   assert.ok(rows.some((r) => r.k === direct.body.id && r.status === "done"));
   await sleep(0);
+});
+
+const chainSession = async (id: string, sid: number | string) => (await view(ctx.provider, `${id}.${reg.id}`, "get_session", { session_id: String(sid) })) as any;
+
+test("active session = Open AND not past its expiry: a live one blocks, an expired or abandoned one does not (humans and agent keys); the cleanup job closes them", async () => {
+  const gina = await signin("Gina"), hank = await signin("Hank"), ivy = await signin("Ivy");
+  await mint(gina.token, "xfer-e", 0.04); // session TTL of 2.4 s so the test can watch it expire
+  const sid = await playAndClose(hank.token, "xfer-e", false);
+  const row: any = db.prepare("SELECT onchain_session_id FROM sessions WHERE id=?").get(sid);
+
+  // 1. a real live session blocks, and tells the UI until when
+  const st1: any = await (await call("/guardians/xfer-e/transfer-status", "GET")).json();
+  assert.equal(st1.blocked, true); assert.ok(st1.expires_at > st1.server_now - 100);
+  const live = await call("/guardians/xfer-e/transfer", "POST", bearer(gina.token), { to: "Ivy" });
+  assert.equal(live.status, 409); const lj: any = await live.json(); assert.match(lj.error, /open attempt/i); assert.ok(lj.expires_at);
+  // ... the same for an agent key (no approval needed, so the guard is the only thing in the way)
+  const key = await makeKey(gina.token, { transfer_nft: true, transfer_allowlist: ["Ivy"], transfer_require_approval: false });
+  const agentLive = await call("/guardians/xfer-e/transfer", "POST", { "x-api-key": key.key }, { to: "Ivy" });
+  assert.equal(agentLive.status, 409);
+  assert.equal(await nftOwner("xfer-e"), gina.account);
+
+  // 2. past its expiry nobody has closed it: the CHAIN still says Open, the database still says open, but it no longer blocks
+  await sleep(4500);
+  assert.equal((await chainSession("xfer-e", row.onchain_session_id)).status, "Open");
+  assert.equal((db.prepare("SELECT status FROM sessions WHERE id=?").get(sid) as any).status, "open");
+  const st2: any = await (await call("/guardians/xfer-e/transfer-status", "GET")).json();
+  assert.equal(st2.blocked, false);
+  const agentOk = await call("/guardians/xfer-e/transfer", "POST", { "x-api-key": key.key }, { to: "Ivy" });
+  assert.equal(agentOk.status, 200, JSON.stringify(await agentOk.clone().json()));
+  assert.equal(await nftOwner("xfer-e"), ivy.account);
+
+  // 3. the cleanup job closes the stale session through close_session: chain and database agree
+  const closed = await sweepSessions();
+  assert.ok(closed >= 1);
+  assert.equal((await chainSession("xfer-e", row.onchain_session_id)).status, "Failed");
+  assert.equal((db.prepare("SELECT status FROM sessions WHERE id=?").get(sid) as any).status, "failed");
+  assert.equal(await sweepSessions(), 0); // nothing left to do
+});
+
+test("an abandoned session the database does not know about (restored from an older backup) neither blocks nor survives the cleanup job", async () => {
+  const jo = await signin("Jo"), kim = await signin("Kim");
+  await mint(jo.token, "xfer-f", 0.04);
+  const sid = await playAndClose(kim.token, "xfer-f", false);
+  const row: any = db.prepare("SELECT onchain_session_id FROM sessions WHERE id=?").get(sid);
+  db.prepare("DELETE FROM sessions WHERE id=?").run(sid); // the database lost its row; the vault still has the session
+  // while live the chain alone is enough to block (database and chain disagree: the chain wins)
+  assert.equal(((await (await call("/guardians/xfer-f/transfer-status", "GET")).json()) as any).blocked, true);
+  assert.equal((await call("/guardians/xfer-f/transfer", "POST", bearer(jo.token), { to: "Kim" })).status, 409);
+  await sleep(4500);
+  assert.equal(((await (await call("/guardians/xfer-f/transfer-status", "GET")).json()) as any).blocked, false);
+  assert.ok((await sweepSessions()) >= 1);
+  assert.equal((await chainSession("xfer-f", row.onchain_session_id)).status, "Failed");
+  // and now the transfer works (human path), and it is the same Open-then-closed definition end to end
+  const r = await call("/guardians/xfer-f/transfer", "POST", bearer(jo.token), { to: "Kim" });
+  assert.equal(r.status, 200, JSON.stringify(await r.clone().json()));
+  assert.equal(await nftOwner("xfer-f"), kim.account);
 });

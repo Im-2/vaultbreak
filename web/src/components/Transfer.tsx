@@ -1,11 +1,30 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Pill } from "./Pill";
 import { AcctLink, TxLink } from "./TxLink";
-import { api, type AppConfig, type Guardian } from "../lib/api";
+import { api, ApiError, type AppConfig, type Guardian } from "../lib/api";
 import { shortHash, timeAgo } from "../lib/format";
 import { useFetch } from "../lib/hooks";
 
 type Found = { account: string; name: string | null };
+type Guard = { blocked: boolean; expires_at: number | null; server_now: number };
+const mmss = (ms: number) => { const t = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
+
+/**
+ * Is a transfer blocked by a live attempt? Reads the server's single definition of an active session (open on-chain AND not past its
+ * expiry) and counts down to the expiry using the server's clock. It re-checks by itself when the countdown ends (and every 15 s),
+ * so the button re-enables without a reload. No active session means no warning at all.
+ */
+function useTransferGuard(id: string) {
+  const [g, setG] = useState<{ blocked: boolean; expiresAt: number | null; offset: number }>({ blocked: false, expiresAt: null, offset: 0 });
+  const [tick, setTick] = useState(0);
+  const apply = (x: Guard) => setG({ blocked: x.blocked, expiresAt: x.expires_at, offset: x.server_now - Date.now() });
+  const refresh = () => api<Guard>(`/guardians/${id}/transfer-status`).then(apply).catch(() => {});
+  useEffect(() => { void refresh(); const t = setInterval(refresh, 15000); return () => clearInterval(t); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!g.blocked) return; const t = setInterval(() => setTick((n) => n + 1), 1000); return () => clearInterval(t); }, [g.blocked]);
+  const remaining = g.blocked && g.expiresAt ? g.expiresAt - (Date.now() + g.offset) : 0;
+  useEffect(() => { if (g.blocked && remaining <= 0) void refresh(); }, [remaining <= 0, tick]); // eslint-disable-line react-hooks/exhaustive-deps
+  return { blocked: g.blocked && remaining > 0, remaining, reportBlocked: (expiresAt: number | null, serverNow: number) => apply({ blocked: true, expires_at: expiresAt, server_now: serverNow }) };
+}
 
 /** Transfer one Guardian NFT (and with it the vault's owner role: creator fees follow) to another username or NEAR account. */
 export function TransferDialog({ g, token, cfg, onClose, onDone }: { g: Guardian; token: string; cfg: AppConfig | null; onClose: () => void; onDone: () => void }) {
@@ -14,6 +33,7 @@ export function TransferDialog({ g, token, cfg, onClose, onDone }: { g: Guardian
   const [tx, setTx] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const guard = useTransferGuard(g.id);
   useEffect(() => { const k = (e: KeyboardEvent) => e.key === "Escape" && onClose(); window.addEventListener("keydown", k); return () => window.removeEventListener("keydown", k); }, [onClose]);
 
   const lookup = async (e: FormEvent) => {
@@ -24,8 +44,14 @@ export function TransferDialog({ g, token, cfg, onClose, onDone }: { g: Guardian
   const confirm = async () => {
     setBusy(true); setErr(null);
     try { const r = await api<{ tx: string }>(`/guardians/${g.id}/transfer`, { token, body: { to: found!.name ?? found!.account } }); setTx(r.tx); onDone(); }
-    catch (x) { setErr((x as Error).message); } finally { setBusy(false); }
+    catch (x) {
+      const b = (x as ApiError).body as { expires_at?: number | null; server_now?: number } | undefined;
+      if ((x as ApiError).status === 409 && b?.expires_at) { guard.reportBlocked(b.expires_at, b.server_now ?? Date.now()); setErr(null); } else setErr((x as Error).message);
+    } finally { setBusy(false); }
   };
+  const wait = guard.blocked && (
+    <div className="form-note" role="status" aria-live="polite">A player has an open attempt on this Guardian, so transfers are paused. <b>Available in {mmss(guard.remaining)}</b>. This unlocks by itself when the attempt ends.</div>
+  );
 
   return (
     <div className="modal" role="dialog" aria-modal="true" aria-label={`Transfer ${g.name}`} onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -43,15 +69,17 @@ export function TransferDialog({ g, token, cfg, onClose, onDone }: { g: Guardian
             <h2>Confirm transfer.</h2>
             <p>Give <b>{g.name}</b> to <b>{found.name ?? shortHash(found.account, 12, 10)}</b>{found.name ? <> (<span className="mono">{shortHash(found.account, 12, 10)}</span>)</> : null}?</p>
             <p className="fine">You will stop owning the NFT and its creator fees. This cannot be undone by you; only the new owner can send it back.</p>
+            {wait}
             {err && <div className="form-error" role="alert">{err}</div>}
-            <div className="modal__actions"><Pill small onClick={() => { setFound(null); setErr(null); }}>Back</Pill><Pill variant="solid" arrow disabled={busy} onClick={confirm}>{busy ? "Transferring…" : "Transfer"}</Pill></div>
+            <div className="modal__actions"><Pill small onClick={() => { setFound(null); setErr(null); }}>Back</Pill><Pill variant="solid" arrow disabled={busy || guard.blocked} onClick={confirm}>{busy ? "Transferring…" : "Transfer"}</Pill></div>
           </>
         ) : (
           <form onSubmit={lookup}>
             <h2>Transfer {g.name}.</h2>
             <p>Enter the recipient's username (a play account on this site) or a NEAR account id.</p>
             <label>Recipient<input value={to} onChange={(e) => setTo(e.target.value)} placeholder="e.g. ada" required maxLength={80} autoFocus /></label>
-            <p className="fine">A transfer is blocked while a player has an open attempt on the Guardian.</p>
+            <p className="fine">A transfer is paused while a player has an open attempt on the Guardian (at most 10 minutes).</p>
+            {wait}
             {err && <div className="form-error" role="alert">{err}</div>}
             <div className="modal__actions"><Pill small onClick={onClose}>Cancel</Pill><Pill variant="solid" type="submit" arrow disabled={busy || !to.trim()}>{busy ? "Looking up…" : "Continue"}</Pill></div>
           </form>
