@@ -1,5 +1,6 @@
 // Layer 3 acceptance through the API on the local sandbox: creator-signed NFT mint, live NEP-177 metadata,
 // transfer -> new owner (and only the new owner) can claim_creator_fees, retire/reveal follow the NFT.
+process.env.VAULT_READ_CACHE_MS = "0"; // these tests change the chain directly and read metadata right after
 import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync } from "node:fs";

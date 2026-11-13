@@ -111,9 +111,21 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
 
   /** Reads the vault straight from chain (so NFT metadata is always live); falls back to the indexer's cache if RPC fails. */
   // Free public RPC endpoints rate-limit hard: reuse a vault read for 5 seconds (the UI polls, and one page load asks for many Guardians).
+  const VAULT_READ_CACHE_MS = Number(process.env.VAULT_READ_CACHE_MS ?? 5000); // 0 disables the cache (tests that change the chain directly)
   const liveCache = new Map<string, { at: number; v: { state: any; stats: any; params: any } }>();
+  // Anything that can change a vault (a session starting, a message, a close, a release, a transfer) drops its cached read, so the next
+  // read is live. The cache only smooths out repeated reads of an unchanged vault.
+  app.use("*", async (c, next) => {
+    await next();
+    if (c.req.method !== "POST") return;
+    const path = new URL(c.req.url).pathname;
+    const g = /^\/guardians\/([^/]+)\/(play|confirm|sessions|transfer|reveal|retire)/.exec(path);
+    if (g) { liveCache.delete(g[1]); return; }
+    const sx = /^\/sessions\/([^/]+)\/(messages|close)/.exec(path);
+    if (sx) { const row = db.prepare("SELECT guardian_id FROM sessions WHERE id=?").get(sx[1]) as any; if (row) liveCache.delete(row.guardian_id); }
+  });
   async function liveOrCached(g: any): Promise<{ state: any; stats: any; params: any }> {
-    const hit = liveCache.get(g.id); if (hit && Date.now() - hit.at < 5000) return hit.v;
+    const hit = liveCache.get(g.id); if (hit && Date.now() - hit.at < VAULT_READ_CACHE_MS) return hit.v;
     try {
       const [state, stats, params] = await Promise.all([view(p, g.vault_account, "get_state"), view(p, g.vault_account, "get_stats"), view(p, g.vault_account, "get_params")]) as any[];
       liveCache.set(g.id, { at: Date.now(), v: { state, stats, params } });
