@@ -110,7 +110,7 @@ Vite + React + TypeScript, plain CSS with variables, no animation library. A qui
 **One command (Linux / macOS / WSL2, Node 22+, Rust for the first build):**
 
 ```bash
-git clone https://github.com/Im-2/vaultbreak && cd vaultbreak
+git clone --depth 1 https://github.com/Im-2/vaultbreak && cd vaultbreak
 npm install
 npm run dev        # sandbox + contracts + seeded demo Guardians + API (:8787) + UI (:5173)
 ```
@@ -129,10 +129,10 @@ API endpoints added for the UI: `GET /config`, `GET /stats`, `POST /custodial/si
 
 These commands were re-run in a fresh clone of this repository on 2026-11-13 (WSL2 Ubuntu, Node 22, Rust stable). The "See" lines are the real results.
 
-Requirements: Linux, macOS or WSL2 Ubuntu; Node 22+; Rust stable with the `wasm32-unknown-unknown` target. (On Windows, run everything inside WSL: the NEAR sandbox binary and the contract build are Linux/macOS only. `scripts/wsl.sh "<cmd>"` is a helper used during development.) The first clone is large (`docs/screens`), so it can take a few minutes.
+Requirements: Linux, macOS or WSL2 Ubuntu; Node 22+; Rust stable with the `wasm32-unknown-unknown` target. (On Windows, run everything inside WSL: the NEAR sandbox binary and the contract build are Linux/macOS only. `scripts/wsl.sh "<cmd>"` is a helper used during development.) The repository is about 65 MB (mostly screenshots in `docs/screens`); a full-history clone was reset mid-transfer twice during the final audit, so use the shallow `--depth 1` clone shown here.
 
 ```bash
-git clone https://github.com/Im-2/vaultbreak && cd vaultbreak
+git clone --depth 1 https://github.com/Im-2/vaultbreak && cd vaultbreak
 npm install
 ```
 
