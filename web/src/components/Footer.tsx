@@ -2,11 +2,12 @@ import { Link } from "react-router-dom";
 import { ScrambleText } from "./ScrambleText";
 import { useConfig } from "../lib/hooks";
 import { netNote } from "../lib/format";
+import { bgImage } from "./Pic";
 
 export function Footer() {
   const { data: cfg } = useConfig();
   return (
-    <footer className="footer dark" style={{ backgroundImage: "linear-gradient(rgba(6,8,15,.72), rgba(6,8,15,.88)), url(/assets/metal.jpg)" }}>
+    <footer className="footer dark" style={{ backgroundImage: `linear-gradient(rgba(6,8,15,.72), rgba(6,8,15,.88)), ${bgImage("metal", 960)}` }}>
       <div className="footer__inner">
         <div className="footer__cols">
           <div><h4>Play</h4><Link to="/arena">Arena</Link><Link to="/create">Create a Guardian</Link><Link to="/swarms">Swarms</Link><Link to="/me">My Guardians</Link></div>

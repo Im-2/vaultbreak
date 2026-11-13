@@ -5,6 +5,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/stats",
+      "destination": "/api/snap?what=stats"
+    },
+    {
+      "source": "/api/guardians",
+      "destination": "/api/snap?what=guardians"
+    },
+    {
       "source": "/api/guardians/:id/image.svg",
       "destination": "/api/image?id=:id"
     },

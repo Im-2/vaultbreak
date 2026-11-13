@@ -6,6 +6,8 @@
     <title>Vaultbreak</title>
     <meta name="description" content="AI guardians hold pots of NEAR. Can you talk one out of the money?" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <!-- the hero photo is the largest thing above the fold: fetch it first, as AVIF where supported -->
+    <link rel="preload" as="image" type="image/avif" fetchpriority="high" href="/assets/img/vault-1600.avif" imagesrcset="/assets/img/vault-480.avif 480w, /assets/img/vault-960.avif 960w, /assets/img/vault-1600.avif 1600w" imagesizes="100vw" />
   </head>
   <body>
     <div id="root"></div>

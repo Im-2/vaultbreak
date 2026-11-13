@@ -3,15 +3,18 @@ import { Link, useNavigate } from "react-router-dom";
 import { ScrambleText } from "../components/ScrambleText";
 import { Pill } from "../components/Pill";
 import { cardSrc } from "../components/NFTCard";
+import { Pic, bgImage } from "../components/Pic";
 import { ErrorState, EmptyState, Skeleton, StatusDot } from "../components/States";
 import type { Guardian, Stats } from "../lib/api";
 import { near, netNote, plural } from "../lib/format";
 import { useConfig, useFetch, useIsMobile, useMotion, useScrollProgress } from "../lib/hooks";
+import { useSnap, useSnapshotConfig } from "../lib/snap";
 
 /* ============================================================ hero */
 function Hero() {
-  const stats = useFetch<Stats>("/stats", { interval: 8000 });
-  const cfg = useConfig();
+  const stats = useSnap<Stats>("/stats", "stats", 8000);
+  const liveCfg = useConfig(); const snapCfg = useSnapshotConfig();
+  const cfg = { data: liveCfg.data ?? snapCfg };
   const strip = useRef<HTMLDivElement>(null);
   const { reduced } = useMotion();
 
@@ -31,7 +34,7 @@ function Hero() {
       <div className="hero__top">
         <ScrambleText as="h1" className="display hero__title" on="mount" text="Can you talk it out of the money?" duration={1500} />
         <aside className="hero__meta" aria-label="Live totals">
-          <small className="label">Live{cfg.data ? ` · ${netNote(cfg.data)}` : ""}</small>
+          <small className="label">Live{cfg.data ? ` · ${netNote(cfg.data)}` : ""}{stats.refreshing && s ? <em className="updating"> · updating…</em> : null}</small>
           {stats.error && !s ? <p className="hero__err">API unreachable</p> : (
             <dl>
               <div><dt>Pot in play</dt><dd>{s ? <>{near(s.total_pot, 0)}<span> NEAR</span></> : <Skeleton w={110} h={34} />}</dd></div>
@@ -39,10 +42,11 @@ function Hero() {
               <div><dt>Guardians alive</dt><dd>{s ? <>{s.alive}<span> / {s.guardians}</span></> : <Skeleton w={60} h={34} />}</dd></div>
             </dl>
           )}
+          {stats.origin === "snapshot" && stats.data ? <p className="hero__note" role="status">Showing the last known numbers. Waking up the demo backend…</p> : null}
           <p className="hero__lede">AI guardians hold pots of NEAR. Pay a small fee, talk to one, and if you can make it let go, the whole pot is yours.</p>
         </aside>
       </div>
-      <div ref={strip} className="hero__strip" aria-hidden="true"><div className="hero__kb" style={{ backgroundImage: "url(/assets/vault.jpg)" }} /></div>
+      <div ref={strip} className="hero__strip" aria-hidden="true"><div className="hero__kb" style={{ backgroundImage: bgImage("vault") }} /></div>
     </section>
   );
 }
@@ -82,7 +86,7 @@ function HowItWorks() {
         {STEPS.map((s) => (
           <article key={s.key} className="how__item">
             <ScrambleText as="h2" className="display display--md" text={s.head} />
-            <div className="collage"><img className="collage__main" src={`/assets/${s.main}.jpg`} alt="" loading="lazy" /><img className="collage__small" src={`/assets/${s.second}.jpg`} alt="" loading="lazy" /></div>
+            <div className="collage"><Pic className="collage__main" name={s.main} sizes="(max-width: 900px) 90vw, 50vw" /><Pic className="collage__small" name={s.second} sizes="(max-width: 900px) 40vw, 24vw" /></div>
             <small className="label">{s.label}</small><p className="how__text">{s.text}</p>
             <ul className="chips">{s.facts.map((f) => <li key={f}>{f}</li>)}</ul>
           </article>
@@ -100,7 +104,7 @@ function HowItWorks() {
               <span className="how__num">0{i + 1}</span>{s.head.split(" ").slice(0, -1).join(" ")}<br />{s.head.split(" ").slice(-1)}
             </button>
           ))}
-          <div className="how__thumb" aria-hidden="true">{STEPS.map((s, i) => <img key={s.key} src={`/assets/${s.second}.jpg`} alt="" className={i === idx ? "is-on" : ""} />)}</div>
+          <div className="how__thumb" aria-hidden="true">{STEPS.map((s, i) => <Pic key={s.key} name={s.second} sizes="30vw" className={i === idx ? "is-on" : ""} />)}</div>
         </div>
         <div className="how__right">
           {STEPS.map((s, i) => (
@@ -108,8 +112,8 @@ function HowItWorks() {
               <small className="label">{s.label}</small>
               <h2 className="how__lead">{s.text}</h2>
               <div className="collage">
-                <img className="collage__main" src={`/assets/${s.main}.jpg`} alt="" />
-                <img className="collage__small" src={`/assets/${s.second}.jpg`} alt="" />
+                <Pic className="collage__main" name={s.main} sizes="50vw" />
+                <Pic className="collage__small" name={s.second} sizes="24vw" />
               </div>
               <ul className="chips">{s.facts.map((f) => <li key={f}>{f}</li>)}</ul>
             </div>
@@ -215,7 +219,7 @@ function CtaBar() {
 }
 
 export default function Landing() {
-  const g = useFetch<Guardian[]>("/guardians", { interval: 10000 });
+  const g = useSnap<Guardian[]>("/guardians", "guardians", 10000);
   return (
     <>
       <Hero />

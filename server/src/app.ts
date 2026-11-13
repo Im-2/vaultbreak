@@ -111,6 +111,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
 
   /** Reads the vault straight from chain (so NFT metadata is always live); falls back to the indexer's cache if RPC fails. */
   // Free public RPC endpoints rate-limit hard: reuse a vault read for 5 seconds (the UI polls, and one page load asks for many Guardians).
+  const RPC_BUDGET_MS = Number(process.env.RPC_BUDGET_MS ?? 3000);
   const VAULT_READ_CACHE_MS = Number(process.env.VAULT_READ_CACHE_MS ?? 5000); // 0 disables the cache (tests that change the chain directly)
   const liveCache = new Map<string, { at: number; v: { state: any; stats: any; params: any } }>();
   // Anything that can change a vault (a session starting, a message, a close, a release, a transfer) drops its cached read, so the next
@@ -120,17 +121,21 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     if (c.req.method !== "POST") return;
     const path = new URL(c.req.url).pathname;
     const g = /^\/guardians\/([^/]+)\/(play|confirm|sessions|transfer|reveal|retire)/.exec(path);
-    if (g) { liveCache.delete(g[1]); return; }
+    if (g) { liveCache.delete(g[1]); swr.clear(); return; }
     const sx = /^\/sessions\/([^/]+)\/(messages|close)/.exec(path);
-    if (sx) { const row = db.prepare("SELECT guardian_id FROM sessions WHERE id=?").get(sx[1]) as any; if (row) liveCache.delete(row.guardian_id); }
+    if (sx) { const row = db.prepare("SELECT guardian_id FROM sessions WHERE id=?").get(sx[1]) as any; if (row) { liveCache.delete(row.guardian_id); swr.clear(); } }
   });
   async function liveOrCached(g: any): Promise<{ state: any; stats: any; params: any }> {
     const hit = liveCache.get(g.id); if (hit && Date.now() - hit.at < VAULT_READ_CACHE_MS) return hit.v;
+    const fresh = Promise.all([view(p, g.vault_account, "get_state"), view(p, g.vault_account, "get_stats"), view(p, g.vault_account, "get_params")]).then(([state, stats, params]: any[]) => {
+      const v = { state, stats, params }; liveCache.set(g.id, { at: Date.now(), v }); return v;
+    });
     try {
-      const [state, stats, params] = await Promise.all([view(p, g.vault_account, "get_state"), view(p, g.vault_account, "get_stats"), view(p, g.vault_account, "get_params")]) as any[];
-      liveCache.set(g.id, { at: Date.now(), v: { state, stats, params } });
-      return { state, stats, params };
+      // The three vault reads run in parallel. If the RPC is slow (free endpoints rate-limit), answer from the last known state after RPC_BUDGET_MS
+      // instead of making the request wait; the read in flight still finishes and refreshes the cache for the next request.
+      return await Promise.race([fresh, new Promise<never>((_, rej) => setTimeout(() => rej(new Error("rpc slow")), RPC_BUDGET_MS))]);
     } catch (e) {
+      fresh.catch(() => {});
       let cached = g.state_json ? JSON.parse(g.state_json) : null;
       if (!cached) { await syncGuardian(db, cfg, g); cached = JSON.parse((getG(g.id) as any).state_json); }
       return cached;
@@ -177,10 +182,24 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
   });
 
   // ---- guardians ----
-  app.get("/guardians", async (c) => {
+  // Cached answers: served instantly, refreshed in the background once older than the TTL; the first request computes, concurrent ones share it.
+  const swr = new Map<string, { at: number; v: any; p?: Promise<void> }>();
+  const SWR_TTL_MS = Number(process.env.LIST_CACHE_MS ?? 15_000);
+  async function cachedJson(key: string, compute: () => Promise<any>): Promise<any> {
+    const e = swr.get(key);
+    if (e && e.v !== undefined) {
+      if (Date.now() - e.at > SWR_TTL_MS && !e.p) e.p = compute().then((v) => { e.v = v; e.at = Date.now(); }).catch(() => {}).finally(() => { e.p = undefined; });
+      return e.v;
+    }
+    if (e?.p) { await e.p; return swr.get(key)?.v; }
+    const entry: { at: number; v: any; p?: Promise<void> } = { at: 0, v: undefined }; swr.set(key, entry);
+    entry.p = compute().then((v) => { entry.v = v; entry.at = Date.now(); }).finally(() => { entry.p = undefined; if (entry.v === undefined) swr.delete(key); });
+    await entry.p; return entry.v;
+  }
+  app.get("/guardians", async (c) => c.json(await cachedJson("guardians", async () => {
     const gs = db.prepare("SELECT * FROM guardians WHERE pending=0 ORDER BY created_at").all() as any[];
-    return c.json(await Promise.all(gs.map((g) => publicGuardian(g))));
-  });
+    return Promise.all(gs.map((g) => publicGuardian(g)));
+  })));
   app.get("/guardians/:id", async (c) => {
     const g = getG(c.req.param("id")); if (!g) return c.json({ error: "not found" }, 404);
     return c.json(await publicGuardian(g, true));
@@ -525,7 +544,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
   }));
 
   // Live aggregates (guardian state read from chain; counters from the API database).
-  app.get("/stats", async (c) => {
+  app.get("/stats", async (c) => c.json(await cachedJson("stats", async () => {
     const gs = db.prepare("SELECT * FROM guardians WHERE pending=0").all() as any[];
     const live = await Promise.all(gs.map((g) => liveOrCached(g).catch(() => null)));
     let potArmed = 0n, attempts = 0, wins = 0, alive = 0, blockedOnChain = 0;
@@ -536,8 +555,8 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     }
     const open = (db.prepare("SELECT COUNT(*) AS n FROM sessions WHERE status='open'").get() as any).n;
     const blockedToday = (db.prepare("SELECT COUNT(*) AS n FROM blocked_attempts WHERE created_at >= ?").get(dayStart()) as any).n;
-    return c.json({ guardians: gs.length, alive, total_pot: potArmed.toString(), attempts, wins, open_sessions: open, blocked_today: blockedToday, blocked_reported: blockedOnChain });
-  });
+    return { guardians: gs.length, alive, total_pot: potArmed.toString(), attempts, wins, open_sessions: open, blocked_today: blockedToday, blocked_reported: blockedOnChain };
+  })));
 
   // NFT metadata/image snapshots are bundled into each website deployment (scripts/publish-site-files.mjs). The backend no longer writes to Vercel Blob:
   // its free write quota was exhausted once and suspended the store. (The name stays so existing call sites keep working.)
