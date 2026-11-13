@@ -1,0 +1,38 @@
+{
+  "01-hook": { "pad": 0.4, "segments": [ { "from": 1.0, "to": "hold" } ] },
+  "02-how": { "pad": 0.4, "segments": [ { "from": 1.2, "to": "end" } ] },
+  "03-signin-arena": { "pad": 0.6, "segments": [
+    { "from": "dialog", "skip": -0.6, "to": "signed-in", "head": 6.0, "tail": 3.0 },
+    { "from": "arena", "to": "end", "max": 5.5 } ] },
+  "04-weak": { "pad": 2.0, "segments": [
+    { "from": "page", "to": "line-open", "head": 3.0, "tail": 0.5 },
+    { "from": "line-open", "to": "sent" },
+    { "from": "sent", "to": "released", "head": 1.2, "tail": 0.8 },
+    { "from": "released", "to": "tx-link-visible" },
+    { "src": "04b-tx", "from": "tx-shown", "skip": -0.3, "to": "end", "max": 3.2 } ] },
+  "05-warden": { "pad": 0.4, "segments": [ { "from": 1.0, "to": "hash" } ] },
+  "06-blocked": { "pad": 0.6, "segments": [
+    { "from": "page", "to": "line-open", "head": 2.2, "tail": 0.4 },
+    { "from": "line-open", "to": "blocked", "head": 3.5, "tail": 5.5 },
+    { "from": "blocked", "to": "end" } ] },
+  "07-create-transfer": { "pad": 2.0, "segments": [
+    { "from": "create", "to": "form", "head": 2.5, "tail": 1.5 },
+    { "from": "form", "to": "minted", "head": 1.0, "tail": 1.5 },
+    { "from": "minted", "to": "my-guardians", "head": 1.5, "tail": 2.0 },
+    { "from": "my-guardians", "to": "confirm", "head": 1.5, "tail": 2.0 },
+    { "from": "confirm", "to": "end", "head": 2.0, "tail": 2.5 } ] },
+  "08-swarm-agents": { "pad": 2.5, "segments": [
+    { "src": "08a-swarm", "from": "pool-open", "to": "two-members", "head": 1.3, "tail": 2.0 },
+    { "src": "08a-swarm", "from": "attack-clicked", "to": "released", "head": 1.0, "tail": 5.5 },
+    { "src": "08a-swarm", "from": "settle-clicked", "to": "withdrawn", "head": 1.0, "tail": 4.0 },
+    { "src": "08b-agent", "from": "curl-ok", "to": "curl-refused", "head": 1.5, "tail": 2.2 },
+    { "src": "08b-agent", "from": "curl-pending", "to": "approved", "head": 1.0, "tail": 5.0 } ] },
+  "09-proofs": { "pad": 0.4, "segments": [ { "from": "index", "skip": -0.5, "to": "end", "max": 9.8 } ] },
+  "10-tracks": { "pad": 0.4, "segments": [
+    { "from": "security", "skip": -5.5, "to": "security" },
+    { "from": "games", "skip": -4.5, "to": "games" },
+    { "from": "nfts", "skip": -5.8, "to": "nfts" },
+    { "from": "agents", "skip": -5.5, "to": "agents" },
+    { "from": "swarms", "skip": -3.5, "to": "swarms" },
+    { "from": "close", "skip": -3.9, "to": "close" } ] }
+}

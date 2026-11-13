@@ -64,7 +64,7 @@ const final = (out, vf) => ff(["-i", `${BUILD}joined.mp4`, "-i", `${BUILD}joined
   "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-profile:v", "high", "-r", "30", "-c:a", "aac", "-b:a", "192k", "-ar", "44100", "-movflags", "+faststart", out]);
 final(`${root}demo.mp4`, "");
 // burned-in captions (run from the video/ folder so the filter path stays simple)
-final(`${root}demo-captions.mp4`, "subtitles=demo.srt:force_style='FontName=DejaVu Sans,FontSize=20,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&HCC000000,BorderStyle=1,Outline=2,Shadow=0,MarginV=34',");
+final(`${root}demo-captions.mp4`, "subtitles=demo.srt:force_style='FontName=DejaVu Sans,FontSize=11,Bold=1,PrimaryColour=&H00FFFFFF,OutlineColour=&HCC000000,BorderStyle=1,Outline=2,Shadow=0,MarginV=16',");
 // x clip: scene 4 (the weak Guardian release), with its narration
 const p4 = parts.find((p) => p.id === "04-weak"); const s4 = starts[parts.indexOf(p4)];
 ff(["-ss", s4.toFixed(2), "-t", (p4.dur - GAP + 0.2).toFixed(2), "-i", `${root}demo.mp4`, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-c:a", "aac", "-b:a", "192k", "-movflags", "+faststart", `${root}x-clip.mp4`]);

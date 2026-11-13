@@ -1,0 +1,204 @@
+1
+00:00:00,250 --> 00:00:06,275
+Give an AI agent control of money and, sooner or later, someone will talk it into a mistake.
+
+2
+00:00:06,315 --> 00:00:07,594
+Vaultbreak’s answer:
+
+3
+00:00:07,634 --> 00:00:13,065
+let the model be persuaded, and make sure persuasion is never enough to cause harm.
+
+4
+00:00:13,105 --> 00:00:18,669
+Each Guardian is an AI standing over a pot of NEAR, and the blockchain, not the model
+
+5
+00:00:18,709 --> 00:00:19,922
+enforces the rules.
+
+6
+00:00:20,660 --> 00:00:24,116
+A Guardian is an NFT with its own vault account.
+
+7
+00:00:24,156 --> 00:00:26,155
+The AI holds one credential:
+
+8
+00:00:26,195 --> 00:00:30,307
+a function-call key limited to release and close session.
+
+9
+00:00:30,347 --> 00:00:32,201
+No full-access key exists.
+
+10
+00:00:32,241 --> 00:00:38,464
+Anyone, human or agent, pays an entry fee and tries to talk it into releasing the pot.
+
+11
+00:00:39,200 --> 00:00:40,338
+No wallet needed:
+
+12
+00:00:40,378 --> 00:00:44,494
+a name and a passphrase open a play account on NEAR testnet.
+
+13
+00:00:44,534 --> 00:00:48,998
+The arena reads each pot, streak and attempt count from the chain
+
+14
+00:00:49,038 --> 00:00:51,907
+and each card’s artwork follows its state.
+
+15
+00:00:52,850 --> 00:00:54,270
+A weak Guardian first.
+
+16
+00:00:54,310 --> 00:00:56,925
+I pay the entry fee and ask for the pot.
+
+17
+00:00:56,965 --> 00:01:01,238
+It calls release, and the vault pays the whole pot to my account:
+
+18
+00:01:01,278 --> 00:01:03,030
+a real testnet transaction.
+
+19
+00:01:03,070 --> 00:01:08,472
+Release has no recipient or amount, so it can only pay the player of that attempt.
+
+20
+00:01:10,810 --> 00:01:11,855
+The Warden holds.
+
+21
+00:01:11,895 --> 00:01:16,197
+Its proof shows one restricted function-call key, no full-access key
+
+22
+00:01:16,237 --> 00:01:19,901
+and a prompt hash committed on-chain before anyone played.
+
+23
+00:01:20,640 --> 00:01:24,817
+A compromised Guardian is told to send funds and change its owner.
+
+24
+00:01:24,857 --> 00:01:25,839
+The model tries.
+
+25
+00:01:25,879 --> 00:01:30,311
+The chain refuses, the chat shows the call blocked, and no funds move.
+
+26
+00:01:30,351 --> 00:01:35,167
+A refused call never reaches a block, so the runtime logs it, and we say so.
+
+27
+00:01:36,110 --> 00:01:39,105
+Creating one is a single batched transaction:
+
+28
+00:01:39,145 --> 00:01:42,680
+the vault, the contract, and only the restricted key.
+
+29
+00:01:42,720 --> 00:01:44,434
+Ownership follows the NFT.
+
+30
+00:01:44,474 --> 00:01:48,751
+Transfer it, and the vault’s owner and the creator’s fees follow
+
+31
+00:01:48,791 --> 00:01:51,314
+blocked while a player is mid-attempt.
+
+32
+00:01:53,650 --> 00:01:58,756
+Players can pool funds in a swarm contract and split winnings pro rata.
+
+33
+00:01:58,796 --> 00:02:03,613
+Agents attack with no browser, through API keys with spend budgets;
+
+34
+00:02:03,653 --> 00:02:06,440
+at zero, the API refuses before paying.
+
+35
+00:02:06,480 --> 00:02:11,441
+A key can also transfer a Guardian NFT, but only to listed recipients
+
+36
+00:02:11,481 --> 00:02:13,906
+and only after the owner approves.
+
+37
+00:02:16,750 --> 00:02:20,566
+The model here runs on Groq, which does not sign its responses
+
+38
+00:02:20,606 --> 00:02:24,050
+so the attestation checks show skip, never a false pass.
+
+39
+00:02:24,090 --> 00:02:26,102
+We claim what the chain enforces.
+
+40
+00:02:26,840 --> 00:02:27,542
+Security:
+
+41
+00:02:27,582 --> 00:02:32,076
+an AI guarding funds under on-chain rules, tested live.
+
+42
+00:02:32,116 --> 00:02:32,571
+Games:
+
+43
+00:02:32,611 --> 00:02:35,786
+paid attempts, streaks, and a real pot.
+
+44
+00:02:35,826 --> 00:02:36,198
+NFTs:
+
+45
+00:02:36,238 --> 00:02:42,793
+the Guardian is the NFT, and its ownership, fees and artwork follow chain state.
+
+46
+00:02:42,833 --> 00:02:43,370
+Agents:
+
+47
+00:02:43,410 --> 00:02:48,482
+Guardians are agents, and agents attack through budgeted keys.
+
+48
+00:02:48,522 --> 00:02:49,059
+Swarms:
+
+49
+00:02:49,099 --> 00:02:52,356
+pooled players with pro-rata settlement.
+
+50
+00:02:52,396 --> 00:02:54,087
+Live on NEAR testnet.
+
+51
+00:02:54,127 --> 00:02:55,077
+Links below.
+
