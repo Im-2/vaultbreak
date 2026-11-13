@@ -11,6 +11,7 @@ services:
       - { key: MODEL_PROVIDER, value: groq }
       - { key: MODEL_NAME, value: openai/gpt-oss-120b }
       - { key: MODEL_API_KEY, sync: false }          # Groq key
-      - { key: BLOB_READ_WRITE_TOKEN, sync: false }  # Vercel Blob (metadata snapshots + encrypted state backup)
+      - { key: DATABASE_URL, fromDatabase: { name: vaultbreak-state, property: connectionString } }  # free Postgres: the encrypted state backup (see server/src/backup.ts)
+      - { key: STATE_SEED_FILE, value: /etc/secrets/state-seed.b64 }  # Render secret file with a starting backup (base64)
       - { key: BACKUP_PASSPHRASE, sync: false }      # decrypts the state backup
       - { key: TESTNET_FUNDER_KEY, sync: false }     # the faucet account's key (funds new play accounts)

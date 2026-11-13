@@ -1,4 +1,4 @@
-# Keeps the free Render backend awake: it sleeps after 15 minutes without traffic, so ping it through the website every 10 minutes.
+# Keeps the free Render backend awake: it sleeps after 15 minutes without traffic, so ping it through the website every 10 minutes (the backend also pings itself every 4 minutes).
 # (GitHub's scheduler can run a few minutes late; the site shows a "waking up" message if the backend does fall asleep.)
 name: keepalive
 on:
@@ -9,4 +9,4 @@ jobs:
   ping:
     runs-on: ubuntu-latest
     steps:
-      - run: curl -fsS --max-time 90 --retry 3 --retry-delay 20 https://tryvaultbreak.vercel.app/api/stats
+      - run: curl -fsS --max-time 90 --retry 3 --retry-delay 20 https://tryvaultbreak.vercel.app/api/health

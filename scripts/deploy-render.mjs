@@ -17,7 +17,7 @@ const funderKey = process.env.TESTNET_FUNDER_KEY ?? JSON.parse(readFileSync(".ke
 const envVars = [
   ["PORT", "8787"], ["NEAR_RPC_URL", "https://test.rpc.fastnear.com,https://near-testnet.drpc.org"], ["PUBLIC_BASE_URL", "https://tryvaultbreak.vercel.app"],
   ["MODEL_PROVIDER", process.env.MODEL_PROVIDER ?? "groq"], ["MODEL_NAME", process.env.MODEL_NAME ?? "openai/gpt-oss-120b"], ["MODEL_API_KEY", need("MODEL_API_KEY")],
-  ["BLOB_READ_WRITE_TOKEN", need("BLOB_READ_WRITE_TOKEN")], ["BACKUP_PASSPHRASE", need("BACKUP_PASSPHRASE")], ["TESTNET_FUNDER_KEY", funderKey],
+  ["STATE_SEED_FILE", "/etc/secrets/state-seed.b64"], ["BACKUP_PASSPHRASE", need("BACKUP_PASSPHRASE")], ["TESTNET_FUNDER_KEY", funderKey],
 ].map(([key, value]) => ({ key, value }));
 
 const NAME = "vaultbreak-backend";

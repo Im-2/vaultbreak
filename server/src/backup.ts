@@ -1,31 +1,38 @@
 // Off-site, encrypted backup of the backend's state, so a host with a wiped disk (or a new host) can recover everything:
 // the SQLite database (guardians, sessions, transcripts, proofs, custodial accounts) and every key file (Guardian function-call
-// keys, custodial play-account keys, the prompt-encryption key). Stored in Vercel Blob as ONE file encrypted with AES-256-GCM,
-// key = scrypt(BACKUP_PASSPHRASE). The passphrase and the Blob token live only in the host's secret environment variables.
-//   restoreIfEmpty(dataDir)  at boot, when the data directory has no database
-//   startBackups(dataDir)    every 2 minutes, uploads when something changed
+// keys, custodial play-account keys, the prompt-encryption key).
+//
+// Stores (Vercel Blob is NOT used any more: its free write quota was exhausted and it suspended the store):
+//   * Postgres  (DATABASE_URL)  the live store: a new encrypted row at most every 10-15 minutes and only when the state changed,
+//                               plus one final write on SIGTERM (a deploy or restart), so a restart never goes back in time.
+//   * Seed file (STATE_SEED_FILE, e.g. a Render secret file, base64 text) a static starting point, used when it is NEWER than Postgres.
+// On boot, with an empty data directory, the NEWEST of the two (by the timestamp inside the backup) is restored.
+// Everything is one file encrypted with AES-256-GCM, key = scrypt(BACKUP_PASSPHRASE); the passphrase lives only in the host's secrets.
 import { createCipheriv, createDecipheriv, randomBytes, scryptSync, createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync, rmSync } from "node:fs";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { DatabaseSync } from "node:sqlite";
 import { dirname, join } from "node:path";
+import pg from "pg";
 
-const TOKEN = () => process.env.BLOB_READ_WRITE_TOKEN;
 const PASS = () => process.env.BACKUP_PASSPHRASE;
-const PATHNAME = "state/vaultbreak-state.enc";
-const blobBase = () => { const m = /^vercel_blob_rw_([A-Za-z0-9]+)_/.exec(TOKEN() ?? ""); return m ? `https://${m[1].toLowerCase()}.public.blob.vercel-storage.com` : null; };
-export const backupEnabled = () => !!TOKEN() && !!PASS();
+const DBURL = () => process.env.DATABASE_URL;
+const SEED = () => process.env.STATE_SEED_FILE;
+export const backupEnabled = () => !!PASS() && (!!DBURL() || !!SEED());
 
 function seal(plain: Buffer): Buffer {
   const salt = randomBytes(16), iv = randomBytes(12);
   const c = createCipheriv("aes-256-gcm", scryptSync(PASS()!, salt, 32), iv);
-  const body = Buffer.concat([c.update(plain), c.final()]);
-  return Buffer.concat([Buffer.from("VB1"), salt, iv, c.getAuthTag(), body]);
+  const body = Buffer.concat([c.update(gzipSync(plain)), c.final()]);
+  return Buffer.concat([Buffer.from("VB2"), salt, iv, c.getAuthTag(), body]);
 }
 function open(blob: Buffer): Buffer {
-  if (blob.subarray(0, 3).toString() !== "VB1") throw new Error("not a Vaultbreak backup");
+  const tag3 = blob.subarray(0, 3).toString();
+  if (tag3 !== "VB1" && tag3 !== "VB2") throw new Error("not a Vaultbreak backup");
   const salt = blob.subarray(3, 19), iv = blob.subarray(19, 31), tag = blob.subarray(31, 47);
   const d = createDecipheriv("aes-256-gcm", scryptSync(PASS()!, salt, 32), iv); d.setAuthTag(tag);
-  return Buffer.concat([d.update(blob.subarray(47)), d.final()]);
+  const plain = Buffer.concat([d.update(blob.subarray(47)), d.final()]);
+  return tag3 === "VB2" ? gunzipSync(plain) : plain;
 }
 
 function listFiles(dir: string, rel = ""): string[] {
@@ -33,7 +40,7 @@ function listFiles(dir: string, rel = ""): string[] {
   for (const e of readdirSync(join(dir, rel), { withFileTypes: true })) {
     const r = rel ? `${rel}/${e.name}` : e.name;
     if (e.isDirectory()) out.push(...listFiles(dir, r));
-    else if (!/vaultbreak\.db(-wal|-shm)?$/.test(e.name)) out.push(r);
+    else if (!/vaultbreak\.db(-wal|-shm)?$/.test(e.name) && e.name !== ".backup-copy.db") out.push(r);
   }
   return out;
 }
@@ -47,7 +54,7 @@ export function pack(dataDir: string): Buffer {
     const db = new DatabaseSync(dbPath); db.exec(`VACUUM INTO '${tmp.replace(/'/g, "''")}'`); db.close();
     files["vaultbreak.db"] = readFileSync(tmp).toString("base64"); rmSync(tmp, { force: true });
   }
-  for (const f of listFiles(dataDir)) if (f !== ".backup-copy.db") files[f] = readFileSync(join(dataDir, f)).toString("base64");
+  for (const f of listFiles(dataDir)) files[f] = readFileSync(join(dataDir, f)).toString("base64");
   return Buffer.from(JSON.stringify({ v: 1, at: new Date().toISOString(), files }));
 }
 export function unpack(dataDir: string, plain: Buffer): number {
@@ -55,33 +62,82 @@ export function unpack(dataDir: string, plain: Buffer): number {
   for (const [rel, b64] of Object.entries(files)) { const p = join(dataDir, rel); mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, Buffer.from(b64, "base64")); }
   return Object.keys(files).length;
 }
+const stampOf = (plain: Buffer): number => Date.parse(JSON.parse(plain.toString()).at ?? "") || 0;
 
+// ---------------------------------------------------------------- Postgres
+const client = () => new pg.Client({ connectionString: DBURL(), ssl: /@(localhost|127.0.0.1)[:/]/.test(DBURL() ?? "") ? undefined : { rejectUnauthorized: false }, connectionTimeoutMillis: 15000 });
+async function pgRun<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
+  const c = client(); await c.connect();
+  try { await c.query("CREATE TABLE IF NOT EXISTS vb_state_backup (id SERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), data BYTEA NOT NULL)"); return await fn(c); } finally { await c.end().catch(() => {}); }
+}
+const readPg = async (): Promise<Buffer | null> => pgRun(async (c) => { const r = await c.query("SELECT data FROM vb_state_backup ORDER BY id DESC LIMIT 1"); return r.rows[0]?.data ?? null; });
+export async function writePg(sealed: Buffer): Promise<void> {
+  await pgRun(async (c) => { await c.query("INSERT INTO vb_state_backup (data) VALUES ($1)", [sealed]); await c.query("DELETE FROM vb_state_backup WHERE id NOT IN (SELECT id FROM vb_state_backup ORDER BY id DESC LIMIT 3)"); });
+}
+const readSeed = (): Buffer | null => { const f = SEED(); if (!f || !existsSync(f)) return null; return Buffer.from(readFileSync(f, "utf8").trim(), "base64"); };
+
+/** Restores the newest backup (Postgres or the seed file) when the data directory has no database. */
 export async function restoreIfEmpty(dataDir: string, log: (m: string) => void = console.log): Promise<boolean> {
   if (existsSync(join(dataDir, "vaultbreak.db"))) return false;
-  if (!backupEnabled()) { log("no database here and no backup configured (BLOB_READ_WRITE_TOKEN + BACKUP_PASSPHRASE): starting empty"); return false; }
-  const r = await fetch(`${blobBase()}/${PATHNAME}`, { cache: "no-store" });
-  if (!r.ok) { log(`no backup found (${r.status}): starting empty`); return false; }
+  if (!PASS()) { log("no database here and BACKUP_PASSPHRASE is not set: starting empty"); return false; }
+  const cands: { src: string; plain: Buffer; at: number }[] = [];
+  if (DBURL()) { try { const b = await readPg(); if (b) { const plain = open(b); cands.push({ src: "postgres", plain, at: stampOf(plain) }); } else log("postgres: no backup row yet"); } catch (e) { log(`postgres unavailable: ${String(e).slice(0, 100)}`); } }
+  try { const b = readSeed(); if (b) { const plain = open(b); cands.push({ src: "seed file", plain, at: stampOf(plain) }); } } catch (e) { log(`seed file unreadable: ${String(e).slice(0, 100)}`); }
+  if (!cands.length) { log("no backup found anywhere: starting empty"); return false; }
+  cands.sort((a, b) => b.at - a.at);
   mkdirSync(dataDir, { recursive: true });
-  const n = unpack(dataDir, open(Buffer.from(await r.arrayBuffer())));
-  log(`restored ${n} files from the encrypted off-site backup`);
+  const n = unpack(dataDir, cands[0].plain);
+  log(`restored ${n} files from the newest backup (${cands[0].src}, taken ${new Date(cands[0].at).toISOString()}${cands.length > 1 ? `; also saw ${cands[1].src} from ${new Date(cands[1].at).toISOString()}` : ""})`);
   return true;
 }
 
-export async function upload(packed: Buffer): Promise<boolean> {
-  const r = await fetch(`https://blob.vercel-storage.com/${PATHNAME}`, { method: "PUT", body: seal(packed), headers: { authorization: `Bearer ${TOKEN()}`, "x-api-version": "7", "x-add-random-suffix": "0", "x-allow-overwrite": "1", "x-content-type": "application/octet-stream", "x-cache-control-max-age": "0" } });
-  return r.ok;
+/** A hash of what matters, ignoring volatile bookkeeping (rate-limit usage, login tokens) and the timestamp. */
+function fingerprint(dataDir: string): string {
+  const h = createHash("sha256");
+  const dbPath = join(dataDir, "vaultbreak.db");
+  if (existsSync(dbPath)) {
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      for (const t of ["guardians", "sessions", "turns", "custodial", "api_keys", "nft_transfers", "blocked_attempts", "custodial_topups"]) {
+        try { h.update(t + JSON.stringify(db.prepare(`SELECT * FROM ${t}`).all())); } catch { /* table may not exist yet */ }
+      }
+    } finally { db.close(); }
+  }
+  for (const f of listFiles(dataDir)) h.update(f + readFileSync(join(dataDir, f)).length);
+  return h.digest("hex");
 }
 
-export function startBackups(dataDir: string, log: (m: string) => void = console.log, everyMs = 120_000): void {
-  if (!backupEnabled()) { log("off-site backup disabled (set BLOB_READ_WRITE_TOKEN and BACKUP_PASSPHRASE to enable)"); return; }
-  let last = "";
-  const tick = async () => {
-    try {
-      const packed = pack(dataDir);
-      const stable = createHash("sha256").update(JSON.stringify(JSON.parse(packed.toString()).files)).digest("hex"); // ignores the timestamp
-      if (stable === last) return;
-      if (await upload(packed)) { last = stable; log(`off-site backup saved (${stable.slice(0, 8)})`); }
-    } catch (e) { log(`backup failed: ${String(e).slice(0, 120)}`); }
-  };
-  setTimeout(() => void tick(), 10_000); (setInterval(() => void tick(), everyMs) as any).unref?.();
+let started: { dataDir: string; log: (m: string) => void; lastHash: string; lastAt: number } | null = null;
+export async function backupNow(reason: string): Promise<boolean> {
+  if (!started || !backupEnabled() || !DBURL()) return false;
+  try {
+    await writePg(seal(pack(started.dataDir)));
+    started.lastAt = Date.now(); started.log(`backup saved to postgres (${reason})`); return true;
+  } catch (e) { started.log(`backup failed: ${String(e).slice(0, 120)}`); return false; }
 }
+
+/**
+ * Starts the backup loop: looks every minute, writes at most once per BACKUP_MIN_INTERVAL_MS (default 12 minutes) and only when the
+ * state changed; writes once more on SIGTERM so a restart or deploy keeps the newest state.
+ */
+export function startBackups(dataDir: string, log: (m: string) => void = console.log): void {
+  if (!PASS() || !DBURL()) { log("off-site backup disabled (set BACKUP_PASSPHRASE and DATABASE_URL to enable)"); return; }
+  const minMs = Number(process.env.BACKUP_MIN_INTERVAL_MS ?? 12 * 60_000);
+  started = { dataDir, log, lastHash: "", lastAt: 0 };
+  const tick = async () => {
+    if (!started) return;
+    try {
+      const h = fingerprint(dataDir);
+      if (h === started.lastHash) return;
+      if (started.lastAt && Date.now() - started.lastAt < minMs) return;
+      if (await backupNow("state changed")) started.lastHash = h;
+    } catch (e) { log(`backup check failed: ${String(e).slice(0, 120)}`); }
+  };
+  setTimeout(() => void tick(), 60_000); (setInterval(() => void tick(), 60_000) as any).unref?.();
+  let closing = false;
+  const bye = async (sig: string) => { if (closing) return; closing = true; try { if (started && fingerprint(dataDir) !== started.lastHash) await backupNow(`final, ${sig}`); } finally { process.exit(0); } };
+  process.on("SIGTERM", () => void bye("SIGTERM")); process.on("SIGINT", () => void bye("SIGINT"));
+}
+
+/** For tools: the sealed backup of a data directory as one buffer. */
+export const sealedBackup = (dataDir: string): Buffer => seal(pack(dataDir));

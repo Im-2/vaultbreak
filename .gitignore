@@ -12,3 +12,7 @@ web/dist/
 ui/nfts/lineup.png
 .serve/
 .testnet-data/
+video/audio/
+video/raw/
+video/*.mp4
+video/*.webm

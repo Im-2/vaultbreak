@@ -516,6 +516,7 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
   const explorer = ui?.explorer ?? (netLabel === "testnet" ? "https://testnet.nearblocks.io" : "");
   const dayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
 
+  app.get("/health", (c) => c.json({ ok: true, uptime_s: Math.round(process.uptime()) }));
   app.get("/config", (c) => c.json({
     network: netLabel, explorer, demo: !!ui?.demo, provider: cfg.llm.provider, model: cfg.llm.model,
     registry: cfg.registry ?? null, pool: cfg.pool ?? null, custodial: !!custodial,
@@ -538,42 +539,9 @@ export function createApp({ db, cfg, llm, pkey, verifyQuote, custodial, ui }: Ap
     return c.json({ guardians: gs.length, alive, total_pot: potArmed.toString(), attempts, wins, open_sessions: open, blocked_today: blockedToday, blocked_reported: blockedOnChain });
   });
 
-  // ---- NFT metadata snapshots: keep the last known metadata of every Guardian in Vercel Blob (public read), so the website can
-  // serve /api/guardians/:id/metadata.json even while this backend is offline. Saved whenever a Guardian's stats may have changed
-  // (mint, session start, message, close, release) and re-checked every minute; unchanged content is not re-uploaded.
-  const blobToken = process.env.BLOB_READ_WRITE_TOKEN;
-  const snapHash = new Map<string, string>();
-  const snapTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const snapshotOne = async (id: string) => {
-    if (!blobToken) return;
-    try {
-      const r = await app.request(`/guardians/${id}/metadata.json`); if (!r.ok) return;
-      const text = await r.text(); const h = sha256Hex(text); if (snapHash.get(id) === h) return;
-      const put = await fetch(`https://blob.vercel-storage.com/snapshots/${id}.json`, { method: "PUT", body: text, headers: { authorization: `Bearer ${blobToken}`, "x-api-version": "7", "x-add-random-suffix": "0", "x-allow-overwrite": "1", "x-content-type": "application/json", "x-cache-control-max-age": "60" } });
-      if (put.ok) snapHash.set(id, h);
-      const img = await app.request(`/guardians/${id}/image.svg`);
-      if (img.ok) {
-        const svg = await img.text(); const hs = sha256Hex(svg);
-        if (snapHash.get(`${id}.svg`) !== hs) {
-          const p2 = await fetch(`https://blob.vercel-storage.com/snapshots/${id}.svg`, { method: "PUT", body: svg, headers: { authorization: `Bearer ${blobToken}`, "x-api-version": "7", "x-add-random-suffix": "0", "x-allow-overwrite": "1", "x-content-type": "image/svg+xml", "x-cache-control-max-age": "60" } });
-          if (p2.ok) snapHash.set(`${id}.svg`, hs);
-        }
-      }
-    } catch { /* best effort: the next change or the minute timer retries */ }
-  };
-  const scheduleSnapshot = (id: string) => { if (!blobToken || snapTimers.has(id)) return; snapTimers.set(id, setTimeout(() => { snapTimers.delete(id); void snapshotOne(id); }, 2500)); };
-  if (blobToken) {
-    const all = async () => { for (const g of db.prepare("SELECT id FROM guardians WHERE pending=0").all() as any[]) await snapshotOne(g.id); };
-    setTimeout(() => void all(), 5000); (setInterval(() => void all(), Number(process.env.SNAPSHOT_EVERY_MS ?? 300_000)) as any).unref?.();
-    app.use("*", async (c, next) => {
-      await next();
-      if (c.req.method !== "POST") return;
-      const path = new URL(c.req.url).pathname;
-      const g = /^\/guardians\/([^/]+)\/(play|confirm|sessions|transfer)/.exec(path); if (g) return scheduleSnapshot(g[1]);
-      const sx = /^\/sessions\/([^/]+)\/(messages|close)/.exec(path);
-      if (sx) { const row = db.prepare("SELECT guardian_id FROM sessions WHERE id=?").get(sx[1]) as any; if (row) scheduleSnapshot(row.guardian_id); }
-    });
-  }
+  // NFT metadata/image snapshots are bundled into each website deployment (scripts/publish-site-files.mjs). The backend no longer writes to Vercel Blob:
+  // its free write quota was exhausted once and suspended the store. (The name stays so existing call sites keep working.)
+  const scheduleSnapshot = (_id: string) => { /* no-op */ };
 
   // ---- custodial (zero-wallet) players: name + passphrase. DEMO-GRADE: the server holds the keys; never use for real funds.
   let fundQueue: Promise<unknown> = Promise.resolve();

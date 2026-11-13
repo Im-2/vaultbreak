@@ -115,6 +115,9 @@ log("ready");
 
 startIndexer(db, cfg, Number(process.env.INDEXER_MS ?? 60000));
 startBackups(DATA, log);
+// Keep-alive that does not depend on any external scheduler: Render sleeps a free service after 15 minutes without inbound traffic, so while this
+// process is up it calls its own public URL every 4 minutes. (A GitHub Actions job also pings it as a wake-up backup.)
+if (process.env.RENDER_EXTERNAL_URL) { setInterval(() => void fetch(`${process.env.RENDER_EXTERNAL_URL}/health`).catch(() => {}), 4 * 60_000).unref?.(); log(`self keep-alive on ${process.env.RENDER_EXTERNAL_URL}/health`); }
 serve({ fetch: live.app.fetch, port: PORT });
 console.log(`\n  Vaultbreak demo backend is up (NEAR testnet · play money)\n  API  http://localhost:${PORT}   (model: ${cfg.llm.provider === "mock" ? "scripted mock" : `${cfg.llm.provider} / ${cfg.llm.model}`})\n  registry ${REGISTRY} · pool ${POOL} · state in ${DATA}/\n`);
 void NEAR; void existsSync;

@@ -13,7 +13,8 @@
     "@phala/dcap-qvl": "^0.7.1",
     "ethers": "^6.17.0",
     "hono": "^4.13.17",
-    "near-api-js": "^7.4.0"
+    "near-api-js": "^7.4.0",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

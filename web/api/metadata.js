@@ -20,11 +20,6 @@ async function getJson(url) {
   return { status: r.status, body };
 }
 
-function blobBase() {
-  // token format: vercel_blob_rw_<storeId>_<secret>; public files live at https://<storeid>.public.blob.vercel-storage.com/
-  const m = /^vercel_blob_rw_([A-Za-z0-9]+)_/.exec(process.env.BLOB_READ_WRITE_TOKEN || "");
-  return m ? `https://${m[1].toLowerCase()}.public.blob.vercel-storage.com` : null;
-}
 
 export default async function handler(req, res) {
   for (const [k, v] of Object.entries(HEADERS)) res.setHeader(k, v);
@@ -47,14 +42,6 @@ export default async function handler(req, res) {
   } catch { /* backend offline or slow: fall back */ }
   if (backendSaidMissing) return send(404, { error: "unknown guardian", id }, "live", "public, s-maxage=60");
 
-  // 2. last snapshot saved by the backend (Vercel Blob)
-  const base = blobBase();
-  if (base) {
-    try {
-      const snap = await getJson(`${base}/snapshots/${id}.json`);
-      if (snap.status === 200 && snap.body && snap.body.title) return send(200, stale(snap.body, "blob-snapshot"), "blob-snapshot", "public, s-maxage=30, stale-while-revalidate=3600");
-    } catch { /* fall through */ }
-  }
 
   // 3. snapshot bundled with this deployment
   if (bundled.meta && bundled.meta[id]) return send(200, stale(bundled.meta[id], "bundled-snapshot"), "bundled-snapshot", "public, s-maxage=30, stale-while-revalidate=3600");
