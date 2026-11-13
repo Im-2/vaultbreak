@@ -70,7 +70,7 @@ function PoolDetail({ pool, guardian, onChange }: { pool: PoolView; guardian: Gu
       <div className="pool__actions">
         {pool.status === "Funding" && (
           <form onSubmit={(e: FormEvent) => { e.preventDefault(); void act("contribute", "contribute", { amount_near: amount }); }} className="inline">
-            <input type="number" min={0.01} step={0.1} value={amount} onChange={(e) => setAmount(Number(e.target.value))} aria-label="Amount in NEAR" />
+            <input type="number" min={0.01} step="any" value={amount} onChange={(e) => setAmount(Number(e.target.value))} aria-label="Amount in NEAR" />
             <Pill variant="solid" type="submit" disabled={busy !== null}>{busy === "contribute" ? "Adding…" : "Contribute"}</Pill>
           </form>
         )}
