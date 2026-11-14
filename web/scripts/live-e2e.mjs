@@ -101,7 +101,7 @@ const scenarios = {
     await page.getByText("Use a strong template").click();
     await page.getByLabel("Starting pot (NEAR)").fill("0.5");
     await sleep(1500);
-    // a new play account has 2.5 NEAR; a Guardian locks ~3.4: ask for the (capped) top-up
+    // a new play account has 1.5 NEAR; a Guardian locks ~3.4: ask for the (capped) top-up
     const topup = page.getByRole("button", { name: /Add play credits/ }).first();
     if (await topup.count()) { await topup.click(); await sleep(9000); }
     await shot(page, "5-create-form");

@@ -26,3 +26,14 @@ The Docker image build is UNVERIFIED (the local Docker daemon was not running wh
 The first backup design wrote to Vercel Blob every 2 minutes (plus metadata snapshots). That exhausted Blob's free write quota, the store was suspended ("store_suspended", reads returned 403), and the next Render restart found no backup, started empty and crashed because it could not seed Guardians without their keys. The backend was down for several hours. Recovery: the state was rebuilt from the operator's laptop copy of 2026-11-11 (11 Guardians, 19 play accounts) and put into a free Render Postgres plus a Render secret file; the Blob backup was removed from the backend completely.
 
 **Lost, and why:** everything the backend kept only on its disk after that copy: the keys and database rows of four Guardians that exist on-chain (`intuition`, `xfer-keep-6zqi`, `xfer-keep-94c9`, `xfer-keep-ev6r`; their vaults still hold their pots but nothing can sign for them, anyone can still call `expire_session`), 11 play accounts created after the copy (test accounts, including `judge2dyc`), and the session and transcript history after the copy (proof pages for those sessions). Chain state (pots, attempts, owners, transactions) is intact. `node scripts/audit-state.mjs <data dir>` lists exactly what is on-chain but missing locally.
+
+## Incident, 2026-11-14: the first restart test of the Postgres design lost the newest state
+A restart (Render API `restart`) started the new instance, which restored the newest Postgres row (taken 12 minutes earlier), while the old instance was still writing its final backup on SIGTERM. The new instance then wrote its own (older) state as the newest row, and the following writes pushed the good row out of the three kept rows. **Lost:** the Guardians created in the previous ~10 minutes (eight weak Guardians minted for the README; their vaults exist on testnet but their keys were only in the lost backup, so nothing can release those pots), four play accounts, one release and two sessions. Nothing from before 07:25 UTC was lost.
+
+**Fixed the same day** (`server/src/backup.ts`):
+1. After restoring, the instance waits for the previous instance's final write (20 s) and takes anything newer.
+2. If a newer row still appears in the first 5 minutes, the instance exits so the host restarts it from that row.
+3. An instance never overwrites a newer row (it skips the write and logs it).
+4. The change check ignores the indexer's volatile `state_json`, and the boot state counts as already saved, so an idle backend no longer writes a row every 12 minutes (it did all night) and a restart no longer writes a stale one.
+
+**Re-tested:** a new play account created seconds before a restart was still there after it (HTTP 200 with the same account id, not 201), and Guardian ids and statuses, session count and stats were identical before and after.

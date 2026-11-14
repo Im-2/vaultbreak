@@ -15,4 +15,5 @@ ui/nfts/lineup.png
 video/audio/
 video/raw/
 video/*.mp4
+!video/demo.mp4
 video/*.webm
