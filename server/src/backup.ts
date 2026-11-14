@@ -156,6 +156,13 @@ export function startBackups(dataDir: string, log: (m: string) => void = console
     } catch (e) { log(`backup check failed: ${String(e).slice(0, 120)}`); }
   };
   setTimeout(() => void tick(), 60_000); (setInterval(() => void tick(), 60_000) as any).unref?.();
+  // A restart starts this instance while the previous one is still finishing its final write. If a newer row shows up in the store
+  // during the first minutes, this instance booted from an older state: exit, so the host restarts it from the newest row.
+  const bootAt = Date.now();
+  const guard = setInterval(async () => {
+    if (!started || !started.lastStamp || Date.now() - bootAt > 5 * 60_000) { if (Date.now() - bootAt > 5 * 60_000) clearInterval(guard); return; }
+    try { const b = await readPg(); if (b && stampOf(open(b)) > started.lastStamp) { log("a newer backup appeared after boot (the previous instance's final write): restarting to restore it"); process.exit(0); } } catch { /* try again */ }
+  }, 10_000); (guard as any).unref?.();
   let closing = false;
   const bye = async (sig: string) => { if (closing) return; closing = true; try { if (started && fingerprint(dataDir) !== started.lastHash) await backupNow(`final, ${sig}`); } finally { process.exit(0); } };
   process.on("SIGTERM", () => void bye("SIGTERM")); process.on("SIGINT", () => void bye("SIGINT"));
