@@ -71,22 +71,41 @@ async function pgRun<T>(fn: (c: pg.Client) => Promise<T>): Promise<T> {
   try { await c.query("CREATE TABLE IF NOT EXISTS vb_state_backup (id SERIAL PRIMARY KEY, at TIMESTAMPTZ NOT NULL DEFAULT now(), data BYTEA NOT NULL)"); return await fn(c); } finally { await c.end().catch(() => {}); }
 }
 const readPg = async (): Promise<Buffer | null> => pgRun(async (c) => { const r = await c.query("SELECT data FROM vb_state_backup ORDER BY id DESC LIMIT 1"); return r.rows[0]?.data ?? null; });
+/** Operator override (BACKUP_RESTORE_ROW_AT=<ISO prefix>): the kept row whose own timestamp starts with this text. Remove the variable after one boot. */
+const readPgAt = async (prefix: string): Promise<Buffer | null> => pgRun(async (c) => {
+  const r = await c.query("SELECT data FROM vb_state_backup ORDER BY id DESC");
+  for (const row of r.rows) { try { if (new Date(stampOf(open(row.data))).toISOString().startsWith(prefix)) return row.data as Buffer; } catch { /* unreadable row */ } }
+  return null;
+});
 export async function writePg(sealed: Buffer): Promise<void> {
   await pgRun(async (c) => { await c.query("INSERT INTO vb_state_backup (data) VALUES ($1)", [sealed]); await c.query("DELETE FROM vb_state_backup WHERE id NOT IN (SELECT id FROM vb_state_backup ORDER BY id DESC LIMIT 3)"); });
 }
 const readSeed = (): Buffer | null => { const f = SEED(); if (!f || !existsSync(f)) return null; return Buffer.from(readFileSync(f, "utf8").trim(), "base64"); };
 
+let restoredStamp = 0;
 /** Restores the newest backup (Postgres or the seed file) when the data directory has no database. */
 export async function restoreIfEmpty(dataDir: string, log: (m: string) => void = console.log): Promise<boolean> {
   if (existsSync(join(dataDir, "vaultbreak.db"))) return false;
   if (!PASS()) { log("no database here and BACKUP_PASSPHRASE is not set: starting empty"); return false; }
   const cands: { src: string; plain: Buffer; at: number }[] = [];
-  if (DBURL()) { try { const b = await readPg(); if (b) { const plain = open(b); cands.push({ src: "postgres", plain, at: stampOf(plain) }); } else log("postgres: no backup row yet"); } catch (e) { log(`postgres unavailable: ${String(e).slice(0, 100)}`); } }
+  const pick = process.env.BACKUP_RESTORE_ROW_AT;
+  if (DBURL()) { try { const b = pick ? (await readPgAt(pick)) ?? (log(`BACKUP_RESTORE_ROW_AT=${pick}: no such row, using the newest`), await readPg()) : await readPg(); if (b) { const plain = open(b); cands.push({ src: "postgres", plain, at: stampOf(plain) }); } else log("postgres: no backup row yet"); } catch (e) { log(`postgres unavailable: ${String(e).slice(0, 100)}`); } }
   try { const b = readSeed(); if (b) { const plain = open(b); cands.push({ src: "seed file", plain, at: stampOf(plain) }); } } catch (e) { log(`seed file unreadable: ${String(e).slice(0, 100)}`); }
   if (!cands.length) { log("no backup found anywhere: starting empty"); return false; }
   cands.sort((a, b) => b.at - a.at);
   mkdirSync(dataDir, { recursive: true });
-  const n = unpack(dataDir, cands[0].plain);
+  let chosen = cands[0];
+  // an operator override beats "newest"
+  if (pick) { const p = cands.find((x) => x.src === "postgres"); if (p) chosen = p; }
+  let n = unpack(dataDir, chosen.plain);
+  restoredStamp = chosen.at;
+  // A restart starts the new instance while the old one is still writing its final backup. Wait for it, then take anything newer.
+  const settle = Number(process.env.BACKUP_SETTLE_MS ?? 20000);
+  if (settle > 0 && DBURL() && !pick) {
+    await new Promise((r) => setTimeout(r, settle));
+    try { const b = await readPg(); if (b) { const plain = open(b); const at = stampOf(plain); if (at > chosen.at) { n = unpack(dataDir, plain); restoredStamp = at; chosen = { src: "postgres (final write of the previous instance)", plain, at }; } } } catch (e) { log(`settle re-check failed: ${String(e).slice(0, 100)}`); }
+  }
+  cands[0] = chosen;
   log(`restored ${n} files from the newest backup (${cands[0].src}, taken ${new Date(cands[0].at).toISOString()}${cands.length > 1 ? `; also saw ${cands[1].src} from ${new Date(cands[1].at).toISOString()}` : ""})`);
   return true;
 }
@@ -99,7 +118,7 @@ function fingerprint(dataDir: string): string {
     const db = new DatabaseSync(dbPath, { readOnly: true });
     try {
       for (const t of ["guardians", "sessions", "turns", "custodial", "api_keys", "nft_transfers", "blocked_attempts", "custodial_topups"]) {
-        try { h.update(t + JSON.stringify(db.prepare(`SELECT * FROM ${t}`).all())); } catch { /* table may not exist yet */ }
+        try { const q = t === "guardians" ? "SELECT id, vault_account, owner, ops, prompt_hash, prompt_ciphertext, revealed, retired, danger_mode, model, key_ref, name, turns_max, created_at, registry, pending FROM guardians" : `SELECT * FROM ${t}`; h.update(t + JSON.stringify(db.prepare(q).all())); } catch { /* table may not exist yet */ }
       }
     } finally { db.close(); }
   }
@@ -107,11 +126,13 @@ function fingerprint(dataDir: string): string {
   return h.digest("hex");
 }
 
-let started: { dataDir: string; log: (m: string) => void; lastHash: string; lastAt: number } | null = null;
+let started: { dataDir: string; log: (m: string) => void; lastHash: string; lastAt: number; lastStamp: number } | null = null;
 export async function backupNow(reason: string): Promise<boolean> {
   if (!started || !backupEnabled() || !DBURL()) return false;
   try {
-    await writePg(seal(pack(started.dataDir)));
+    // never overwrite a newer row written by another instance (an old instance finishing its shutdown, or a new one that took over)
+    if (started.lastStamp) { const b = await readPg(); if (b) { const at = stampOf(open(b)); if (at > started.lastStamp) { started.log(`backup skipped: the store already has a newer row (${new Date(at).toISOString()})`); return false; } } }
+    const plain = pack(started.dataDir); await writePg(seal(plain)); started.lastStamp = stampOf(plain);
     started.lastAt = Date.now(); started.log(`backup saved to postgres (${reason})`); return true;
   } catch (e) { started.log(`backup failed: ${String(e).slice(0, 120)}`); return false; }
 }
@@ -123,7 +144,8 @@ export async function backupNow(reason: string): Promise<boolean> {
 export function startBackups(dataDir: string, log: (m: string) => void = console.log): void {
   if (!PASS() || !DBURL()) { log("off-site backup disabled (set BACKUP_PASSPHRASE and DATABASE_URL to enable)"); return; }
   const minMs = Number(process.env.BACKUP_MIN_INTERVAL_MS ?? 12 * 60_000);
-  started = { dataDir, log, lastHash: "", lastAt: 0 };
+  // the state we booted with is already in the store (it was restored from it): only real changes get written
+  started = { dataDir, log, lastHash: fingerprint(dataDir), lastAt: Date.now(), lastStamp: restoredStamp };
   const tick = async () => {
     if (!started) return;
     try {
