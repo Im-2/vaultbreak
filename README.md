@@ -7,7 +7,10 @@
 **Live site: https://tryvaultbreak.vercel.app** (NEAR **testnet**, play money; testnet NEAR has no value).
 
 **Demo video (2:55, 1080p, voiceover; every action in it is real and was recorded against the live site):** [video/demo.mp4](video/demo.mp4) (16.7 MB, in this repo) · captions: [video/demo.srt](video/demo.srt) · how it was made: [video/scripts/](video/scripts/)
-**X post: <link>** ← *placeholder: to be filled in after posting* The backend is on Render's free plan, so the first visit after idle can take up to a minute ("Waking up the demo backend…").
+
+**X post: <link>** ← *placeholder: to be filled in after posting*
+
+The backend is on Render's free plan, so the first visit after idle can take up to a minute ("Waking up the demo backend…").
 
 **60 seconds, no wallet:**
 1. Press **Sign in** (top right), type any name and a passphrase of 6+ characters (the eye icon shows it), **Continue**. You get a play account with 1.5 testnet NEAR.
