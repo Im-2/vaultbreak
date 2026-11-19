@@ -37,3 +37,24 @@ A restart (Render API `restart`) started the new instance, which restored the ne
 4. The change check ignores the indexer's volatile `state_json`, and the boot state counts as already saved, so an idle backend no longer writes a row every 12 minutes (it did all night) and a restart no longer writes a stale one.
 
 **Re-tested:** a new play account created seconds before a restart was still there after it (HTTP 200 with the same account id, not 201), and Guardian ids and statuses, session count and stats were identical before and after.
+
+## Incident, 2026-11-19: Render suspended every free service ("Monthly Quota Exceeded")
+**Symptom:** the keepalive workflow run of 2026-11-19 13:38 UTC failed (`curl: (22) ... 503` on all 4 attempts over about 1 minute); `https://tryvaultbreak.vercel.app/api/health` and `https://vaultbreak-backend-x6zt.onrender.com/health` both answered **503 "Service Suspended"**. Earlier runs (every few hours, from 2026-11-16) had all passed.
+
+**Root cause:** Render's free plan gives **750 instance hours per month per workspace, shared by all free web services in it**. The workspace "My Workspace" holds six free web services (`vaultbreak-backend`, `kitestall`, `purser`, `keel-bot`, `vowed-backend`, `handoff-api`) and a free Postgres. At 2026-11-19 12:25 UTC Render suspended **all six** with the reason `billing` ("Monthly Quota Exceeded") and suspended the Postgres too. The earlier README claim that one always-on service fits in 750 hours is true only when no other free service is running in the workspace. Nothing crashed: the last logs (12:22 UTC) are normal, and the last deploy (`190cf20`, 2026-11-14) is still the live one.
+
+**Why it cannot be fixed from outside:** the Render API refuses to resume it (`only services suspended by a user can be resumed`), and a ping does not help. It needs one of: (1) an owner action in the Render dashboard (Billing: add a payment method or move this service to a paid instance type), or (2) waiting for the quota to reset on the first of the month (2026-12-01 00:00 UTC), after which the services can be resumed in the dashboard. State is safe: it lives in the encrypted Postgres backup (the database is suspended, not deleted; it still expires on 2026-12-13) and in the secret-file seed.
+
+**What still works while the backend is suspended** (Vercel serves them from bundled snapshots): the landing page and its numbers, the Guardian list and Arena cards, and `/api/guardians/<id>/metadata.json` and `image.svg`. Sign-in, play, create, swarms and agent keys need the backend.
+
+**Prevention:** keep only Vaultbreak running in the workspace (suspend the other five in the dashboard, or put them in another workspace); with one service, 744 hours fit in a 31-day month.
+
+## Health states and monitoring
+| What you see | Meaning | What to do |
+|---|---|---|
+| `GET /api/health` -> 200 `{"ok":true,"uptime_s":N}` | backend up (small `uptime_s`: it just restarted) | nothing |
+| 200 after 20 to 60 s, first request slow | cold start after sleeping | normal; the site shows "Waking up the demo backend…" |
+| 502/503/504 for more than 2 minutes, HTML body | crash loop or the host is down | Render dashboard -> Logs and Events |
+| 503 with an HTML page titled **Service Suspended** | Render suspended it (quota or billing) | see the incident above; it needs the dashboard |
+
+**Pingers.** (1) The backend pings its own `/health` every 4 minutes while it runs. (2) `.github/workflows/keepalive.yml` pings `/api/health` every 10 minutes (GitHub often runs it only every few hours) and, since 2026-11-19, retries for about 10 minutes before failing, so one cold start no longer marks a run red; a red run now means the backend stayed unhealthy for 10 minutes, and the log shows the HTTP status and the first line of the body. (3) **External pinger (to be created by the owner, it needs an account):** on cron-job.org (free) create a job with URL `https://tryvaultbreak.vercel.app/api/health`, schedule every 5 minutes, request timeout 60 s, "treat as failed" on a non-2xx status, and enable failure notification by email. UptimeRobot (5-minute free monitor) works the same way. A pinger keeps a sleeping service awake and shows an outage quickly; it cannot undo a billing suspension.

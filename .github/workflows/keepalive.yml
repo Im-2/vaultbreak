@@ -1,5 +1,9 @@
-# Keeps the free Render backend awake: it sleeps after 15 minutes without traffic, so ping it through the website every 10 minutes (the backend also pings itself every 4 minutes).
-# (GitHub's scheduler can run a few minutes late; the site shows a "waking up" message if the backend does fall asleep.)
+# Keeps the free Render backend awake and makes an outage visible.
+# The backend sleeps after 15 minutes without traffic, so ping it through the website every 10 minutes (the backend also pings itself every 4 minutes).
+# A cold start takes up to about a minute, so a single failed request is normal: this job retries for about 10 minutes
+# (12 attempts, 45 s apart, each up to 90 s) and only then FAILS, printing the HTTP status and the first line of the body
+# (e.g. "Service Suspended" when Render has suspended the service for the monthly free-hours quota: a ping cannot fix that).
+# GitHub's scheduler can run late or skip runs, so a second, external pinger every 5 minutes is described in docs/hosting.md.
 name: keepalive
 on:
   schedule:
@@ -8,5 +12,18 @@ on:
 jobs:
   ping:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - run: curl -fsS --max-time 90 --retry 3 --retry-delay 20 https://tryvaultbreak.vercel.app/api/health
+      - name: Ping /api/health (retry for about 10 minutes before failing)
+        run: |
+          url=https://tryvaultbreak.vercel.app/api/health
+          for i in $(seq 1 12); do
+            code=$(curl -s --max-time 90 -o /tmp/body.txt -w '%{http_code}' "$url" || true)
+            echo "attempt $i: HTTP $code"
+            if [ "$code" = "200" ] && grep -q '"ok":true' /tmp/body.txt; then echo "healthy: $(head -c 200 /tmp/body.txt)"; exit 0; fi
+            sleep 45
+          done
+          echo "::error::backend unhealthy after 12 attempts (last HTTP $code). First lines of the body:"
+          head -c 400 /tmp/body.txt | tr '\n' ' ' | sed 's/<[^>]*>/ /g'
+          echo
+          exit 1
